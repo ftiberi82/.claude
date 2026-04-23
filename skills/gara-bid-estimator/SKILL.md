@@ -59,11 +59,24 @@ Questa e una skill di dominio: governa classificazione, stima e compilazione del
      > 2. E richiesta la firma digitale nel flusso di autenticazione? Si / No
 3. Classifica ogni micro-requisito usando `references/aree_funzionali.md`.
 4. Assegna la complessita con `references/regole_stima.md` e applica eventuali correttivi trasversali da `references/segnali_complessita.md`.
+   - **Regola di posizionamento**: parti sempre dal centro del range come default. Scendi al bordo basso solo se tutti i segnali di riduzione sono contemporaneamente presenti. Sali al bordo alto se anche un solo segnale di crescita è presente.
+   - **Regola bando**: un bando di gara è per definizione ad alta ambiguità strutturale. In assenza di segnali espliciti di riduzione, il default è centro-alto del range.
 5. Se hai dubbi di classificazione, consulta `references/esempi_mapping.md` e scegli l'area prevalente; cita l'area secondaria nelle note.
 6. Per le aree con driver di scala, non stimare il blocco come voce unica: usa l'unita di misura indicata nelle reference e separa le componenti significative.
-7. Compila il foglio `Requirements & Solution Mapping`.
-8. Genera assunzioni e rischi coerenti con le ambiguita rilevate e compila `Assumptions & Risks`.
-9. Aggrega i GG/U e compila `Summary`.
+7. **Verifica obbligatoria delle aree trasversali**: prima di compilare il foglio Requirements, controlla che siano presenti righe per le seguenti aree. Se mancano, aggiungile applicando il floor minimo indicato in `references/segnali_complessita.md`:
+   - `Sicurezza e Compliance` — floor: Bassa (4-5 GG/U); alzare se GDPR, audit o VAPT presenti
+   - `Infrastruttura e DevOps` — floor: Media (8-10 GG/U); sempre per progetti nuovi
+   - `Accessibilità` — floor: Bassa (3-4 GG/U); alzare se WCAG/AgID citati esplicitamente
+   - `PMO e Governance` — floor: Bassa (3-4 GG/U); alzare se bando PA con SAL formali o più vendor
+   Queste voci esistono in ogni progetto IT anche se il bando non le nomina. Non aggiungerle è la causa più frequente di sottostima sistematica.
+8. Compila il foglio `Requirements & Solution Mapping`.
+9. Genera assunzioni e rischi coerenti con le ambiguita rilevate e compila `Assumptions & Risks`.
+10. Aggrega i GG/U e compila `Summary`. Applica il contingency secondo la seguente regola obbligatoria — non lasciare il campo vuoto o al valore di default del template:
+    - **15%** se documento funzionale dettagliato, stack noto, nessuna integrazione legacy
+    - **20%** se bando di gara con specifiche incomplete o almeno 1 integrazione
+    - **25%** se bando con ≥ 2 segnali di complessità trasversali (legacy + normativa, AI + compliance, ecc.)
+    - **30%** se requisiti contraddittori, sistemi legacy non documentati, o aree [DA CHIARIRE] significative
+    Documenta nel foglio Summary la motivazione del percentuale scelto in una cella di nota.
 
 ## Regole operative
 
@@ -71,7 +84,7 @@ Questa e una skill di dominio: governa classificazione, stima e compilazione del
 - **Decomponi prima di stimare**: Prima di assegnare GG/U, elenca le unita atomiche del blocco funzionale seguendo `references/decomposizione_requisiti.md`. Se emergono piu unita, crea una riga per ciascuna. Non stimare aggregati.
 - **Trasparenza sulle stime inferite**: Ogni valore marcato `[stimato]` in Colonna D deve corrispondere a una assunzione esplicita nel foglio Assumptions & Risks. Ogni `[DA CHIARIRE]` deve generare una assunzione o un rischio.
 - Ogni requisito deve avere un solo owner di area funzionale primaria.
-- Non assegnare i GG/U partendo solo da `Bassa/Media/Alta`: usa prima la baseline dell'area funzionale, poi posizionati nel range.
+- Non assegnare i GG/U partendo solo da `Bassa/Media/Alta`: usa prima la baseline dell'area funzionale, poi posizionati nel range partendo dal **centro come default**. Scendi al bordo basso solo se tutti i driver di riduzione sono presenti; sali al bordo alto se anche un solo driver di crescita è presente.
 - Per le aree scalabili come integrazioni, frontend, analytics, documentale e migrazione dati, considera anche la numerosita: numero di integrazioni, schermate, KPI/report, workflow o entita dati.
 - Se il driver di scala supera la soglia indicata nelle reference, suddividi la stima in piu righe invece di creare un unico requisito aggregato.
 - Ogni requisito `Alta` deve avere una motivazione leggibile nelle note.
