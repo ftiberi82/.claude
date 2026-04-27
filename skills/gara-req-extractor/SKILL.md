@@ -1,0 +1,236 @@
+---
+name: gara-req-extractor
+description: >
+  Legge un documento di gara o funzionale e produce un elenco strutturato di requisiti in formato JSON.
+  TRIGGER quando: il documento è un capitolato, bando, CSA, RFP, disciplinare tecnico, analisi funzionale, SRS, specifiche funzionali, backlog di prodotto;
+  l'utente chiede di estrarre requisiti, analizzare il bando, classificare i requisiti per area funzionale.
+  OUTPUT: tabella Markdown riepilogativa per validazione umana, poi file JSON `requisiti_estratti.json` scritto solo dopo conferma utente.
+  SKIP se il documento è un contratto esecutivo, verbale, fattura, collaudo o documento privo di requisiti stimabili.
+  SEQUENZA: questa skill va eseguita PRIMA di gara-bid-estimator-v3. Non stimare GG/U — fermarsi al JSON.
+---
+
+# Gara Req Extractor
+
+Legge un documento di gara o funzionale e produce un elenco strutturato e validabile di micro-requisiti in formato JSON.
+**Non stimare GG/U in questa fase.** L'output è un artefatto intermedio da revisionare prima della stima.
+
+## Input richiesti
+
+- Documento di gara o funzionale in `pdf`, `docx`, `xlsx` o `csv`
+
+Se il documento non è leggibile o non contiene requisiti stimabili, fermati e comunica il problema all'utente.
+
+## Formato di output
+
+Produce un file `requisiti_estratti.json` con questa struttura:
+
+```json
+{
+  "meta": {
+    "documento": "nome del file",
+    "tipo_documento": "bando_gara | documento_funzionale",
+    "nome_progetto": "...",
+    "cliente": "...",
+    "data_estrazione": "YYYY-MM-DD",
+    "versione_schema": "1.0"
+  },
+  "requisiti": [
+    {
+      "id": "REQ-001",
+      "tipo": "padre | figlio | singolo",
+      "padre_id": null,
+      "area_funzionale": "...",
+      "testo_bando": "citazione o parafrasi fedele del bando",
+      "soluzione_proposta": "dimensioni Colonna D: Schermate, API, Dati, Processi",
+      "inferenza": "esplicito | stimato | da_chiarire",
+      "note_inferenza": "motivazione se stimato o da_chiarire",
+      "priorita": "must_have | should_have | nice_to_have"
+    }
+  ],
+  "domande_bloccanti": [
+    {
+      "id": "Q-001",
+      "area": "area funzionale coinvolta",
+      "testo_bando": "estratto che genera ambiguità",
+      "domanda": "testo della domanda",
+      "opzioni": ["(a) ...", "(b) ..."],
+      "impatto_stima": "descrizione dell'impatto sui GG/U"
+    }
+  ],
+  "aree_trasversali_aggiunte": ["Sicurezza e Compliance", "Infrastruttura e DevOps"]
+}
+```
+
+### Regole sul campo `inferenza`
+
+| Valore | Quando usarlo |
+|---|---|
+| `esplicito` | Il bando nomina esplicitamente il componente |
+| `stimato` | Componente inferibile secondo le regole chiuse di `decomposizione_requisiti.md` |
+| `da_chiarire` | Nessuna inferenza possibile; bloccante per la stima |
+
+## Workflow
+
+### Step 0 — Scansione struttura e filtro sezioni non stimabili
+
+**Eseguito prima di qualsiasi altra lettura.** Scansiona l'indice o la struttura del documento per identificare le sezioni presenti, poi classifica ciascuna sezione in una delle due categorie seguenti. Leggi il contenuto completo **solo** delle sezioni marcate come STIMABILE.
+
+**Sezioni da SKIPPARE sistematicamente** (non contengono requisiti funzionali o tecnici stimabili):
+
+| Categoria | Segnali nel titolo o nel contenuto |
+|---|---|
+| Intestazioni e metadati | Copertina, indice/sommario, acronimi e definizioni, lista abbreviazioni |
+| Riferimenti normativi di cornice | Sezioni che elencano solo leggi e decreti senza descrivere funzionalità (es. "Documentazione a riferimento", "Normativa applicabile") |
+| Contesto as-is | Descrizione della situazione attuale della SA, strumenti oggi in uso, organizzazione interna — senza requisiti to-be |
+| Premessa e obiettivi generali | Sezioni introduttive che descrivono il contesto del progetto senza specificare funzionalità (es. "Premessa", "Obiettivo del documento") |
+| Requisiti fornitore | Certificazioni richieste, composizione team, CV e seniority figure professionali, requisiti organizzativi, sostenibilità (tipicamente Allegato C o equivalente) |
+| Tempi, risorse e milestone contrattuali | Cronoprogramma esecutivo, distribuzione FTE per fase, modalità di pagamento, penali, milestone con date (tipicamente Allegato D o equivalente) |
+| Clausole contrattuali | Modalità di fornitura ed esecuzione, garanzie, riservatezza, proprietà intellettuale |
+| Supporto e manutenzione generica | Sezioni che descrivono solo SLA di assistenza post-go-live senza funzionalità aggiuntive da stimare |
+
+**Sezioni STIMABILI** (da leggere integralmente):
+
+- Descrizione generale della piattaforma / soluzione to-be
+- Architettura generale del sistema
+- Requisiti funzionali (e relativi allegati)
+- Requisiti non funzionali / tecnico-operativi (e relativi allegati)
+- Fasi di realizzazione **solo** per estrarre attività che generano deliverable funzionali non coperti dai requisiti (es. migrazione dati, formazione, testing con UAT)
+- Allegati con elenchi di requisiti obbligatori funzionali o tecnici
+
+**Regola di dubbio**: se una sezione ha un titolo ambiguo, leggi solo le prime 3-5 righe. Se contiene funzionalità, API, dati o processi da realizzare → STIMABILE. Se contiene solo obblighi contrattuali, normativa citata o descrizione organizzativa → SKIP.
+
+Annota in una lista interna le sezioni skippate, da includere nel riepilogo Step 7 come nota informativa per l'utente.
+
+### Step 1 — Leggi il documento e annota il contesto
+
+Identifica il tipo di documento e annota nel campo `meta`:
+- **Bando di gara** (capitolato, CSA, RFP, bando): nome gara, cliente/stazione appaltante, scadenza offerta, tipologia appalto.
+- **Documento funzionale** (analisi, SRS, specifiche, backlog): nome progetto, versione, cliente, fase progettuale, ambito del documento.
+
+Il tipo di documento non cambia il workflow, ma determina il livello di dettaglio atteso:
+- Bando → alta ambiguità strutturale: inferisci liberamente seguendo le regole chiuse, documenta ogni inferenza.
+- Documento funzionale → usa i dati già presenti (schermate nominate, endpoint API, entità): non marcare `[stimato]` ciò che è già esplicitato.
+
+### Step 2 — Applica il decision tree per ogni blocco funzionale
+
+Per ogni blocco funzionale del documento, prima di creare righe, applica il **decision tree** di `references/decomposizione_requisiti.md`:
+
+```
+1. Il bando elenca esplicitamente elementi distinti?
+   → SÌ: una riga per elemento (tipo: figlio o singolo)
+   → NO: vai a 2
+
+2. L'area ha una regola quantitativa di fallback?
+   → SÌ: applica il fallback, marca [stimato]
+   → NO: vai a 3
+
+3. È una capability unitaria non divisibile?
+   → SÌ: 1 riga singola (tipo: singolo)
+   → NO: 1 riga padre con inferenza=da_chiarire, aggiungi domanda bloccante
+```
+
+**Regola critica**: la struttura padre-figlio si crea **solo** se il decision tree al punto 1 produce ≥ 2 elementi esplicitamente distinti, oppure se il fallback al punto 2 produce ≥ 2 unità. Non creare padri per inferenze incerte.
+
+### Step 3 — Classifica in area funzionale
+
+Per ogni requisito, assegna l'area usando `references/aree_funzionali.md`.
+Se un requisito copre due aree, assegna quella con effort dominante e annota l'area secondaria in `note_inferenza`.
+
+### Step 4 — Valorizza la soluzione proposta (Colonna D)
+
+Compila `soluzione_proposta` seguendo le **dimensioni obbligatorie** per l'area (da `decomposizione_requisiti.md`):
+- `Schermate:` — obbligatorio per Portale, Mobile App
+- `API:` — obbligatorio per Portale, Integrazione, API Management, Autenticazione
+- `Dati:` — obbligatorio per Migrazione Dati, AI/ML
+- `Processi:` — obbligatorio per Documentale, Integrazione, Notifiche, DevOps, PMO
+
+Per ogni valore inferito (non esplicitato nel bando), aggiungi il suffisso `[stimato]`.
+Per ogni valore non determinabile, scrivi `[DA CHIARIRE]` e aggiungi una voce in `domande_bloccanti`.
+
+### Step 5 — Gestisci le ambiguità
+
+Per ogni requisito non riconducibile a una regola chiusa o a un fallback:
+
+1. Il valore è inferibile dal contesto con ragionamento solido? → `inferenza: stimato` + nota.
+2. L'ambiguità ha impatto significativo sulla stima (>20% variazione GG/U attesa) o blocca la decomposizione? → `inferenza: da_chiarire` + aggiungi voce in `domande_bloccanti`.
+3. L'ambiguità riguarda un dettaglio di basso impatto? → `inferenza: da_chiarire` + nota, non bloccare.
+
+**Formato domande bloccanti**: le domande devono essere specifiche (citare il testo del bando), binarie o a scelta multipla quando possibile, con indicazione dell'impatto stimativo per ciascuna opzione.
+
+**Limite domande**: se sono già presenti ≥ 3 voci in `domande_bloccanti`, preferisci assunzioni documentate per i casi successivi per non bloccare il workflow.
+
+### Step 6 — Aggiungi le aree trasversali obbligatorie
+
+Prima di chiudere il JSON, verifica che siano presenti righe per le aree trasversali. Se mancano, aggiungile con `tipo: singolo` e `inferenza: stimato`:
+
+| Area | Condizione di aggiunta | Complessità default |
+|---|---|---|
+| Sicurezza e Compliance | Sempre | Bassa |
+| Infrastruttura e DevOps | Sempre (progetto nuovo) | Media |
+| Accessibilità | Se il documento è PA o cita UI/portale | Bassa |
+| PMO e Governance | Sempre | Bassa |
+
+**Regola struttura trasversali**: le aree trasversali aggiunte automaticamente hanno sempre `tipo: singolo` (nessun padre-figlio) a meno che il bando non citi esplicitamente ≥ 2 capability distinte per quell'area.
+
+Popola il campo `aree_trasversali_aggiunte` con le aree inserite automaticamente.
+
+### Step 7 — Presenta la tabella riepilogativa e attendi validazione
+
+**Non scrivere ancora il file JSON.** La scrittura del JSON è onerosa e viene posticipata a dopo la validazione umana, per evitare di riscriverlo se emergono correzioni o risposte alle domande bloccanti.
+
+Presenta all'utente un **riepilogo in tabella Markdown** con:
+- ID, area funzionale, descrizione sintetica, tipo (padre/figlio/singolo), inferenza
+- Conteggio totale e per tipo di inferenza
+- Elenco numerato delle domande bloccanti (se presenti), ciascuna con le opzioni e l'impatto stimativo
+- Elenco delle sezioni skippate allo Step 0, con motivazione sintetica per ciascuna (es. "contesto as-is", "requisiti fornitore", "milestone contrattuali"). Formato:
+
+  > **Sezioni skippate (N% del documento):**
+  > - [titolo sezione] → [motivazione skip in max 8 parole]
+  > - ...
+  > Se una sezione è stata skippata per errore, segnalalo nella risposta di conferma:
+  > la rileggo e integro i requisiti mancanti prima di scrivere il JSON.
+
+Usa questo formato:
+
+> **Riepilogo estratto: N requisiti (X espliciti, Y stimati, Z da chiarire)**
+>
+> [tabella Markdown]
+>
+> **Domande bloccanti prima di procedere:**
+> Q-001: [testo domanda + opzioni + impatto]
+> Q-002: ...
+>
+> Puoi modificare l'elenco, aggiungere o rimuovere requisiti, e rispondere alle domande.
+> Quando sei pronto, scrivi **"conferma"** (con eventuali correzioni e risposte alle domande)
+> e genererò il file `requisiti_estratti.json`.
+
+Attendi la risposta dell'utente. Non procedere oltre.
+
+### Step 8 — Incorpora le risposte e scrivi il JSON
+
+Eseguito **solo dopo che l'utente ha confermato** (con o senza correzioni).
+
+1. Incorpora nel modello in memoria tutte le correzioni indicate dall'utente (aggiunte, rimozioni, modifiche a singoli requisiti).
+2. Per ogni domanda bloccante a cui l'utente ha risposto: aggiorna `inferenza` da `da_chiarire` a `stimato` o `esplicito`, aggiorna `note_inferenza` con la risposta ricevuta, rimuovi la voce corrispondente da `domande_bloccanti`.
+3. Verifica che le aree trasversali siano presenti (Step 6).
+4. Scrivi il file `requisiti_estratti.json` con la struttura completa e aggiornata.
+5. Comunica all'utente che il file è pronto e può essere passato a `gara-bid-estimator-v3`.
+
+**Non procedere alla stima.** Il file JSON è l'unico output di questa skill.
+
+## Regole operative
+
+- **Decomponi prima di classificare**: applica sempre il decision tree prima di assegnare l'area funzionale.
+- **Non stimare GG/U**: nessun valore numerico di effort nel JSON. Solo struttura e classificazione.
+- **Non scrivere il JSON prima della conferma**: il file `requisiti_estratti.json` viene scritto solo allo Step 8, dopo che l'utente ha confermato la tabella e risposto alle domande bloccanti. La tabella Markdown è l'output intermedio.
+- **Ogni `da_chiarire` deve avere una voce in `domande_bloccanti`** o almeno una nota in `note_inferenza`.
+- **Ogni `stimato` deve avere una `note_inferenza`** che spiega il ragionamento.
+- **Non creare padri speculativi**: il padre esiste solo se i figli sono determinati con certezza (espliciti o da fallback).
+- **Documenta le aree trasversali aggiunte** nel campo `aree_trasversali_aggiunte`.
+- Un requisito = un solo owner di area funzionale primaria.
+
+## Riferimenti da leggere solo quando servono
+
+- Per applicare il decision tree e le regole chiuse di inferenza: `references/decomposizione_requisiti.md`
+- Per classificare un requisito in area funzionale: `references/aree_funzionali.md`
+- Per esempi pratici di mapping e decomposizione: `references/esempi_mapping.md`

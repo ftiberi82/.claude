@@ -1,5 +1,9 @@
 # Regole di Stima per Area Funzionale
 
+> **Nota per questa versione**: questa reference è usata da `gara-bid-estimator-v3`, che riceve in input un file `requisiti_estratti.json` già validato. I requisiti sono già decompositi e classificati. Il compito di questa skill è **solo assegnare i GG/U** seguendo queste regole, senza ridecomporsi o modificare la struttura dei requisiti ricevuti.
+>
+> **Regola di fedeltà all'input**: se il JSON contiene un requisito con `inferenza: da_chiarire`, assegna i GG/U usando la fascia media dell'area come placeholder e segnalalo nelle note. Non rimuovere, unire o rinominare requisiti ricevuti.
+
 Usa questa reference per scegliere una baseline di effort. La complessità non assegna giorni in modo assoluto: posiziona il requisito all'interno del range dell'area funzionale.
 
 ## Regola generale di posizionamento nel range
