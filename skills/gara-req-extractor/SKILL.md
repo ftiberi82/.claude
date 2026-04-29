@@ -3,7 +3,8 @@ name: gara-req-extractor
 description: >
   Legge un documento di gara o funzionale e produce un elenco strutturato di requisiti in formato JSON.
   TRIGGER quando: il documento è un capitolato, bando, CSA, RFP, disciplinare tecnico, analisi funzionale, SRS, specifiche funzionali, backlog di prodotto;
-  l'utente chiede di estrarre requisiti, analizzare il bando, classificare i requisiti per area funzionale.
+  l'utente chiede di estrarre requisiti, analizzare il bando, classificare i requisiti per area funzionale;
+  il file caricato ha estensione `.ppt` o `.pptx` (presentazione PowerPoint).
   OUTPUT: tabella Markdown riepilogativa per validazione umana, poi file JSON `requisiti_estratti.json` scritto solo dopo conferma utente.
   SKIP se il documento è un contratto esecutivo, verbale, fattura, collaudo o documento privo di requisiti stimabili.
   SEQUENZA: questa skill va eseguita PRIMA di gara-bid-estimator-v3. Non stimare GG/U — fermarsi al JSON.
@@ -16,9 +17,91 @@ Legge un documento di gara o funzionale e produce un elenco strutturato e valida
 
 ## Input richiesti
 
-- Documento di gara o funzionale in `pdf`, `docx`, `xlsx` o `csv`
+- Documento di gara o funzionale in `pdf`, `docx`, `xlsx`, `csv`, `ppt` o `pptx`
 
 Se il documento non è leggibile o non contiene requisiti stimabili, fermati e comunica il problema all'utente.
+
+### Lettura documento — strategia adattiva
+
+**Prima di leggere qualsiasi file**, verifica se la skill `document-skills@anthropic-agent-skills` è disponibile nell'ambiente. Questa skill fornisce un'API unificata di estrazione testo per tutti i formati supportati e va preferita ai metodi alternativi quando presente.
+
+**Come verificare la disponibilità:**
+
+`document-skills@anthropic-agent-skills` è un **plugin di Agent Skills per Claude Code**. Quando installato e abilitato, Claude Code inietta automaticamente i metadata delle skill (`pdf`, `docx`, `pptx`, `xlsx`) nel system prompt all'avvio — Claude le vede già nel proprio contesto senza dover cercare file su disco.
+
+**Come verificare la disponibilità:**
+
+Controlla il tuo contesto corrente: se il plugin è attivo, troverai già descrizioni di skill con nomi come `pdf`, `docx`, `pptx`, `xlsx` iniettate da Claude Code. Non eseguire script di ricerca su filesystem — il meccanismo di discovery è gestito interamente da Claude Code.
+
+**Flusso di decisione:**
+
+```
+Nel contesto corrente sono presenti metadata di skill documento
+(pdf / docx / pptx / xlsx) iniettati da Claude Code?
+├── SÌ → usa la skill corrispondente al formato del file:
+│         leggi il suo SKILL.md con view o bash, segui le istruzioni
+│         per estrarre il testo, poi prosegui dallo Step 0
+└── NO → usa i metodi alternativi per formato descritti nelle sezioni seguenti
+```
+
+> **Nota**: se stai operando in claude.ai anziché Claude Code, i metadata del plugin non saranno mai presenti nel contesto — passa direttamente ai metodi alternativi.
+
+---
+
+### Lettura file PowerPoint (`.ppt`, `.pptx`) — metodo alternativo
+
+Se `document-skills` non è disponibile, usa sempre `extract-text` come prima mossa — è il metodo più veloce e completo:
+
+```bash
+extract-text documento.pptx
+```
+
+L'output è un testo strutturato con una sezione `## Slide N` per ogni diapositiva, inclusi titoli, bullet, note del relatore e testi nelle forme. Tratta questo output esattamente come il testo di un PDF o DOCX e prosegui dal **Step 0** normalmente.
+
+**Se `extract-text` non è disponibile nell'ambiente**, fallback con `python-pptx`:
+
+```bash
+python -c "import pptx" 2>/dev/null || pip install python-pptx --quiet --break-system-packages
+```
+
+```python
+#!/usr/bin/env python3
+"""Estrae testo da ogni slide di un file PPTX."""
+from pptx import Presentation
+import sys
+
+path = sys.argv[1]
+prs = Presentation(path)
+
+for i, slide in enumerate(prs.slides, 1):
+    print(f"\n## Slide {i}")
+    for shape in slide.shapes:
+        if shape.has_text_frame:
+            for para in shape.text_frame.paragraphs:
+                testo = para.text.strip()
+                if testo:
+                    print(testo)
+    # Note del relatore
+    if slide.has_notes_slide:
+        note = slide.notes_slide.notes_text_frame.text.strip()
+        if note:
+            print(f"[NOTE RELATORE]: {note}")
+```
+
+```bash
+python estrai_pptx.py documento.pptx
+```
+
+**Contenuti non testuali nelle slide** (diagrammi, flowchart, immagini): se una slide contiene forme senza testo leggibile, esportala come immagine ad alta risoluzione e analizzala visivamente:
+
+```bash
+# Converti le slide in immagini per analisi visiva
+python scripts/office/soffice.py --headless --convert-to pdf documento.pptx
+pdftoppm -jpeg -r 200 -f N -l N documento.pdf slide_N
+# Dove -f N -l N è il numero della slide da esportare (es. -f 3 -l 3 per slide 3)
+```
+
+Analizza visivamente le immagini risultanti: inferisci i requisiti dai pattern visivi (forme, frecce, swimlane, box colorati) marcando ogni inferenza con `[stimato]`.
 
 ## Formato di output
 
