@@ -11,6 +11,7 @@ I pesi nella tabella in fondo determinano lo Score Globale.
 **Cosa cercare:** Frasi vaghe, termini non definiti, condizionali senza risoluzione ("potrebbe", "di solito", "in alcuni casi", "opportunamente"), comportamenti non deterministici o lasciati all'interpretazione dello sviluppatore.
 
 **Esempi di problema:**
+
 - "Il sistema gestirà gli errori in modo opportuno" → cosa significa "opportuno"?
 - "Gli utenti autorizzati possono accedere" → chi sono esattamente gli utenti autorizzati?
 - "Il dato viene validato" → quali regole di validazione? Cosa succede se fallisce?
@@ -22,6 +23,7 @@ I pesi nella tabella in fondo determinano lo Score Globale.
 ## 2. Completezza dei Flussi Applicativi
 
 **Cosa cercare:** Per ogni funzionalità descritta devono essere presenti:
+
 - Flusso principale (happy path)
 - Flussi alternativi (scelte o percorsi diversi dell'utente)
 - Casi di errore e come vengono gestiti
@@ -29,17 +31,32 @@ I pesi nella tabella in fondo determinano lo Score Globale.
 - Postcondizioni (stato del sistema dopo il completamento)
 
 **Esempi di problema:**
+
 - Il flusso di login descrive solo il caso di successo, senza dire cosa accade dopo 3 tentativi falliti.
 - Una funzione di ricerca non specifica cosa mostrare se non ci sono risultati.
 - Un flusso di approvazione non indica cosa succede se l'approvatore è assente.
 
 **Score alto (>80):** Tutti i flussi principali sono descritti end-to-end, senza salti logici o passaggi impliciti. I casi limite più probabili sono coperti.
 
+### Checklist Workflow / Macchina a Stati
+
+Se il documento descrive una macchina a stati (stati, transizioni, workflow approvativo), verificare anche:
+
+- Tutti gli stati sono elencati in una tabella o elenco esplicito?
+- Ogni transizione ha un trigger (evento/azione) e un owner (ruolo che la innesca)?
+- Esiste un diagramma di stato (o è referenziato un allegato)?
+- Gli stati terminali sono esplicitamente dichiarati come tali?
+- Ogni stato ha almeno una transizione in uscita (nessuno stato orfano, eccetto i terminali)?
+- Se ci sono ruoli con visibilità differenziata sugli stati, esiste un mapping stato tecnico → macro-stato visibile per ruolo?
+
+L'assenza di queste informazioni penalizza lo score del criterio "Completezza dei Flussi".
+
 ---
 
 ## 3. Ruoli, Utenti e Profili di Accesso
 
 **Cosa cercare:**
+
 - Elenco completo dei profili utente (es. amministratore, operatore, cittadino, supervisore, back-office)
 - Per ogni funzionalità o schermata: quali profili possono accedervi
 - Distinzione tra permessi di visualizzazione, creazione, modifica, cancellazione
@@ -47,6 +64,7 @@ I pesi nella tabella in fondo determinano lo Score Globale.
 - Eventuali gerarchie o deleghe tra ruoli
 
 **Esempi di problema:**
+
 - "Solo gli utenti abilitati possono modificare" → chi sono gli utenti abilitati? Come si abilitano?
 - La funzione X è descritta senza indicare quale profilo la usa.
 - Non è chiaro se un supervisore ha gli stessi permessi di un amministratore o un sottoinsieme.
@@ -58,6 +76,7 @@ I pesi nella tabella in fondo determinano lo Score Globale.
 ## 4. Gestione Errori e Casi Limite
 
 **Cosa cercare:**
+
 - Comportamento in caso di input errati o mancanti (validazioni lato client e server)
 - Cosa mostrare all'utente in caso di errore (messaggio o almeno una descrizione)
 - Comportamento in caso di timeout o indisponibilità di sistemi esterni
@@ -71,6 +90,7 @@ I pesi nella tabella in fondo determinano lo Score Globale.
 ## 5. Integrazioni con Sistemi Esterni
 
 **Cosa cercare:**
+
 - Elenco di tutti i sistemi con cui l'applicazione si integra (es. anagrafe, PEC, SPID, sistemi di pagamento, CRM)
 - Direzione del flusso dati: chi chiama chi, con quale frequenza
 - Dati scambiati (anche solo concettualmente: "invia codice fiscale, riceve dati anagrafici")
@@ -78,6 +98,7 @@ I pesi nella tabella in fondo determinano lo Score Globale.
 - Eventuali requisiti di autenticazione o sicurezza per le integrazioni
 
 **Esempi di problema:**
+
 - "L'applicazione si integra con il sistema di autenticazione regionale" → tramite quale protocollo? SPID? CIE? Cosa succede se non è raggiungibile?
 - Viene menzionato un invio di notifica email senza specificare chi gestisce il servizio mail.
 
@@ -88,6 +109,7 @@ I pesi nella tabella in fondo determinano lo Score Globale.
 ## 6. Glossario e Termini di Business
 
 **Cosa cercare:**
+
 - Termini specifici del dominio che potrebbero avere significati diversi per developer e stakeholder (es. "pratica", "fascicolo", "posizione", "atto", "istanza")
 - Acronimi usati senza definizione
 - Concetti di business dati per scontati ma non universali
@@ -99,6 +121,7 @@ I pesi nella tabella in fondo determinano lo Score Globale.
 ## 7. Tracciabilità dei Requisiti
 
 **Cosa cercare:**
+
 - I requisiti sono identificati con codici univoci (es. REQ-001, UC-003, FUN-012)?
 - Ogni funzionalità è referenziabile?
 - Ci sono riferimenti a normative, leggi o standard da rispettare (es. CAD, GDPR, WCAG)?
@@ -111,16 +134,15 @@ I pesi nella tabella in fondo determinano lo Score Globale.
 ## 8. Struttura Dati e Specifiche dei Campi
 
 **Cosa cercare:**
-- **Tipo di modello dati**: è specificato se il modello è relazionale (tabelle, FK) o non relazionale (documenti JSON, key-value, grafo)? È motivata la scelta?
+
 - **Entità / Tabelle**: sono identificate e nominate esplicitamente tutte le entità principali del dominio?
 - **Campi per entità**: per ogni campo sono specificati nome, tipo dato (String, Integer, Boolean, Date, DateTime, Decimal, Enum, UUID, BLOB), e formato (es. yyyy-MM-dd per date, 2 decimali per importi)?
 - **Vincoli di campo**: nullable/obbligatorio, lunghezza minima e massima per le stringhe, range min/max per i numerici, pattern/regex (es. codice fiscale = 16 caratteri alfanumerici), valori ammessi per gli enum?
-- **Relazioni tra entità**: sono documentate con tipo (1-a-1, 1-a-molti, molti-a-molti) e cardinalità? Le FK sono esplicitate?
-- **Chiavi primarie**: ogni entità ha una PK documentata (surrogate key, natural key, chiave composta)?
 - **Valori di default**: sono documentati i valori di default per i campi che ne hanno?
 - **Regole di business sui dati**: es. "data fine ≥ data inizio", "importo > 0", "almeno un recapito obbligatorio"?
 
 **Esempi di problema:**
+
 - "La pratica ha un numero identificativo" → che tipo? Numerico auto-increment? UUID? Formato specifico (es. ANNO-NNNN)?
 - "Il sistema memorizza i dati dell'utente" → quali campi? Obbligatori? Lunghezza massima del nome?
 - "La data di scadenza non può essere nel passato" → questa è una regola di business, ma manca la specifica del campo (tipo Date vs DateTime, formato, nullable).
@@ -130,17 +152,41 @@ I pesi nella tabella in fondo determinano lo Score Globale.
 
 ---
 
+## 9. Interfaccia Utente e Navigazione
+
+**Cosa cercare:**
+
+- Per ogni maschera/pagina descritta: elenco dei campi con tipo componente (input, select, textarea, datepicker, upload, checkbox, radio), label, placeholder, obbligatorietà
+- Wireframe, mockup o screenshot referenziati, oppure una descrizione testuale del layout (griglia, sezioni, tab, modali)
+- Flusso di navigazione: da dove l'utente arriva alla pagina, dove viene reindirizzato al completamento, comportamento del "torna indietro" o "annulla"
+- Responsività: il documento specifica il comportamento su viewport ridotti (mobile, tablet)?
+- Accessibilità: riferimenti a WCAG, gestione del focus, compatibilità con screen reader, contrasto colori
+- Messaggi all'utente: testi di successo, warning e errore per ogni azione rilevante (con indicazione se sono configurabili o hardcoded)
+- Ordinamento e paginazione di tabelle/liste: criterio di default, opzioni utente, server-side vs client-side
+
+**Esempi di problema:**
+
+- Il form di inserimento elenca i campi obbligatori ma non indica il tipo di componente (es. "Programma" è un campo libero o una dropdown?).
+- Una pagina di lista descrive le colonne ma non il comportamento di ordinamento né la paginazione.
+- Non è chiaro se una modale di conferma blocca l'interazione con la pagina sottostante.
+- Il documento non indica dove l'utente atterra dopo il salvataggio di un form.
+
+**Score alto (>80):** Ogni pagina/maschera ha una descrizione dei campi con tipo componente e obbligatorietà. Il flusso di navigazione è chiaro (provenienza e destinazione). I messaggi utente sono specificati per le azioni principali.
+
+---
+
 ## Configurazione Pesi
 
 Modifica i pesi per adattare lo Score Globale alle priorità del progetto. I valori devono sommare a 100.
 
-| Criterio | Peso |
-|----------|------|
-| Assenza di Ambiguità | 15 |
-| Completezza dei Flussi | 20 |
-| Ruoli, Utenti e Profili | 15 |
-| Gestione Errori e Casi Limite | 15 |
-| Integrazioni con Sistemi Esterni | 10 |
-| Glossario e Termini di Business | 5 |
-| Tracciabilità dei Requisiti | 5 |
-| Struttura Dati e Specifiche dei Campi | 15 |
+| Criterio                              | Peso |
+| ------------------------------------- | ---- |
+| Assenza di Ambiguità                  | 15   |
+| Completezza dei Flussi                | 15   |
+| Ruoli, Utenti e Profili               | 15   |
+| Gestione Errori e Casi Limite         | 12   |
+| Integrazioni con Sistemi Esterni      | 10   |
+| Glossario e Termini di Business       | 5    |
+| Tracciabilità dei Requisiti           | 5    |
+| Struttura Dati e Specifiche dei Campi | 13   |
+| Interfaccia Utente e Navigazione      | 10   |

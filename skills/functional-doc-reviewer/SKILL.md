@@ -6,6 +6,7 @@ description: Analizza documenti funzionali (.docx, .pdf) presenti nella cartella
 ## Obiettivo
 
 Leggere un documento funzionale (analisi, specifiche, requisiti) e produrre un **file XLS di revisione** salvato nella cartella `documents/`, strutturato su un template predefinito che contiene:
+
 1. Uno **score 0–100 per ogni criterio di qualità**
 2. Un **elenco strutturato di domande e chiarimenti** per criterio, pronti per essere lavorati insieme al documento funzionale
 
@@ -18,9 +19,11 @@ Leggi `references/quality-criteria.md` (relativo alla directory della skill) per
 ## Template XLS
 
 Il file `assets/report_template.xlsx` definisce la struttura fissa del report. Contiene:
+
 - **Sheet "Score"**: riepilogo score + sintesi
-- **Uno sheet per ogni criterio** (Ambiguità, Flussi, Ruoli e Profili, Gestione Errori, Integrazioni, Glossario, Tracciabilità, Struttura Dati), ciascuno con:
+- **Uno sheet per ogni criterio** (Ambiguità, Flussi, Ruoli e Profili, Gestione Errori, Integrazioni, Glossario, Tracciabilità, Struttura Dati, Interfaccia Utente), ciascuno con:
   - Colonna `#` — numero progressivo
+  - Colonna `Rif. Paragrafo` — riferimento al paragrafo/sezione del documento funzionale (es. "Par. 5.3", "Cap. 2")
   - Colonna `Domanda / Chiarimento` — testo azionabile
   - Colonna `Stato` — dropdown **Aperto / Chiuso**
   - Colonna `Risposta / Note` — da compilare a mano
@@ -42,6 +45,7 @@ Se l'utente non specifica il file da analizzare, elenca `.docx` e `.pdf` in `doc
 ### Step 2 — Estrai il testo del documento
 
 **2a — Documenti funzionali principali:**
+
 - File **.pdf**: usa la skill `pdf`.
 - File **.docx**: usa la skill `docx` per ottenere testo completo incluse tabelle.
 
@@ -50,10 +54,12 @@ Se le skill non sono disponibili, usa il tool `Read` come fallback per i `.pdf`;
 **2b — (Solo modalità Revisione) Rileva documenti referenziati nelle note:**
 
 Per ogni riga con Stato = "Chiuso", analizza il testo della colonna "Risposta / Note" e cerca:
+
 - Nomi file espliciti con estensione: `*.docx`, `*.pdf`, `*.xlsx`, `*.xls`, `*.csv`
 - Frasi che introducono un riferimento: "fai riferimento a", "vedi", "cfr.", "come da", "documento", "allegato", "vedere"
 
 Se trovi un nome file, cercalo in `documents/` e nelle sue sottocartelle (case-insensitive). Poi caricalo con la skill appropriata:
+
 - `.docx` → skill `docx`
 - `.pdf` → skill `pdf`
 - `.xlsx` / `.xls` → skill `xlsx`
@@ -68,6 +74,7 @@ for nome, df in sheets.items():
 ```
 
 **Regole di buon senso:**
+
 - Non ricaricare un file già letto nella sessione corrente
 - Se il file non esiste, annota `[⚠ documento non trovato: nome_file]` nella colonna "Risposta / Note" del report aggiornato
 - Considera il contenuto di questi documenti come **contesto di verifica** per le righe "Chiuso" che li referenziano
@@ -84,9 +91,24 @@ Per ogni criterio in `references/quality-criteria.md`:
    - 0–29 → quasi assente
 3. Formula domande **specifiche e azionabili** (mai vaghe come "mancano i ruoli" — meglio "Chi può accedere alla funzione X?").
 
+**Feedback intermedio**: dopo aver analizzato ogni criterio, mostra in chat una riga di riepilogo con score e conteggio domande prima di passare al successivo. Esempio:
+
+```
+Analisi in corso...
+  1/9 Ambiguità:          55/100 — 12 domande
+  2/9 Flussi:             70/100 — 10 domande
+  3/9 Ruoli e Profili:    78/100 —  8 domande
+  ...
+```
+
 **In modalità Revisione**: per ogni riga con Stato "Chiuso":
+
 - Usa la risposta nella colonna "Risposta / Note" e il contenuto di eventuali documenti referenziati (caricati al Step 2b) per valutare se il punto è effettivamente risolto
-- Se risolto → lo score del criterio migliora proporzionalmente
+- Se risolto → lo score del criterio viene ricalcolato con la formula:
+  ```
+  nuovo_score = vecchio_score + (domande_chiuse_risolte / domande_totali_criterio) × (100 - vecchio_score)
+  ```
+  dove `domande_chiuse_risolte` = righe "Chiuso" la cui risposta è stata verificata come effettivamente risolutiva; `domande_totali_criterio` = tutte le righe del criterio. Se una riga "Chiuso" non è effettivamente risolta, non conta come `chiusa_risolta`.
 - Se la risposta è generica, il documento referenziato non contiene quanto atteso, o il punto rimane aperto → aggiungi una nuova riga follow-up con Stato = "Aperto" e indica cosa manca ancora
 - Non modificare le righe già "Aperto" non ancora risposte
 
@@ -103,7 +125,7 @@ Per ogni criterio in `references/quality-criteria.md`:
    - Cella Sintesi: 2–3 righe testuali sui punti critici principali
 
    **Sheet per criterio** (usa il nome breve del sheet, es. "Ambiguità" per "Assenza di Ambiguità"):
-   - Riga 3 in poi: popola `#`, `Domanda / Chiarimento`, `Stato` (= "Aperto"), `Risposta / Note` (= vuoto), `Priorità`
+   - Riga 3 in poi: popola `#`, `Rif. Paragrafo` (riferimento al paragrafo/sezione del documento, es. "Par. 5.3"), `Domanda / Chiarimento`, `Stato` (= "Aperto"), `Risposta / Note` (= vuoto), `Priorità`
    - In modalità Revisione: mantieni le righe esistenti, aggiungi solo nuove righe in fondo
 
 3. Salva il file.
