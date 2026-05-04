@@ -14,12 +14,28 @@ Legge il file `requisiti_estratti.json` e compila il template Excel ufficiale co
 ## Input richiesti
 
 - File `requisiti_estratti.json` prodotto da `gara-req-extractor` (obbligatorio)
-- Template Excel ufficiale da compilare (obbligatorio)
-
-Se il template ufficiale non è disponibile, fermati e richiedilo.
-Il template di riferimento incluso come asset è `assets/Stima_SolutionDesign_Template.xlsx`.
+- Template Excel da compilare: usa sempre `assets/Stima_SolutionDesign_Template.xlsx` come base, a meno che l'utente non fornisca esplicitamente un template diverso
 
 Se ricevi un documento di gara invece del JSON, **non procedere**: rimanda l'utente a eseguire prima `gara-req-extractor` su quel documento.
+
+## Caricamento del template — operazione obbligatoria prima di qualsiasi altra cosa
+
+**Prima di leggere il JSON e prima di scrivere qualsiasi cella**, carica il template con openpyxl:
+
+```python
+from openpyxl import load_workbook
+wb = load_workbook('assets/Stima_SolutionDesign_Template.xlsx')
+ws_req = wb['Requirements & Solution Mapping']
+ws_sum = wb['Summary']
+ws_ar  = wb['Assumptions & Risks']
+```
+
+**Struttura del template da rispettare:**
+- Foglio `Requirements & Solution Mapping`: righe intestazione 1-3, righe dati REQ-001→REQ-016 dalla riga 4 alla riga 19, riga vuota 20, riga TOTALE alla riga 21
+- Foglio `Summary`: contiene dati di progetto, riepilogo economico e formula `Build` che punta a `='Requirements & Solution Mapping'!J21` — non alterarla
+- Foglio `Assumptions & Risks`: sezione A (assunzioni) e sezione B (rischi) già strutturate — aggiungi righe in coda a ciascuna sezione
+
+**Regola critica**: non ricreare mai il file da zero. Parti sempre dal template caricato, scrivi solo nelle celle dati e aggiungi righe dove necessario. Font, colori, bordi, formule di aggregazione esistenti devono essere preservati esattamente.
 
 ## Uso delle skill di formato
 
@@ -42,7 +58,7 @@ Segui tutte le istruzioni della skill letta. In caso di conflitto tra questa ski
 
 ### Step 1 — Leggi e valida il JSON
 
-Carica `requisiti_estratti.json`. Verifica che:
+Il template è già caricato in memoria (vedi sezione precedente). Carica ora `requisiti_estratti.json`. Verifica che:
 - Il campo `meta` sia completo (documento, tipo, cliente).
 - Ogni requisito abbia `id`, `area_funzionale`, `soluzione_proposta`, `inferenza`, `priorita`.
 - Le aree trasversali obbligatorie siano presenti (Sicurezza e Compliance, Infrastruttura e DevOps).
@@ -109,11 +125,11 @@ Segui rigorosamente la struttura del template Excel.
 - **Colonna E** — Componente tecnica
 - **Colonna F** — Complessità (`Alta`, `Media`, `Bassa`); per i padri: `—`
 - **Colonne G/H/I** — GG/U per FE, BE, Data inseriti come **valori interi** (questi sono gli input stimati); per i padri: `0`
-- **Colonna J** — Totale GG/U: inserire **sempre come formula Excel** `=G{row}+H{row}+I{row}` (es. `=G4+H4+I4`). Non calcolare il totale in Python. Per i padri: `0`
+- **Colonna J** — Totale GG/U: la formula `=IFERROR(SUM(G{n}:I{n}),0)` è già presente nel template per ogni riga. **Non sovrascriverla mai** — scrivi solo i valori interi nelle colonne G, H, I e lascia che la colonna J si calcoli da sola. Per i padri: inserisci `0` nelle colonne G, H, I.
 - **Colonna K** — `priorita` dal JSON tradotto: `must_have → Must Have`, `should_have → Should Have`, `nice_to_have → Nice to Have`
 - **Colonna L** — Note: includi `inferenza` e `note_inferenza` dal JSON; per i padri: `Macro-requisito — GG/U stimati nei sub-requisiti figli`
 
-**Regola formule obbligatoria**: la riga totale nella colonna J deve usare `=SUM(J4:J{last_row})`. Tutte le celle di aggregazione nel foglio Summary devono contenere formule che puntano al foglio Requirements (es. `=SUM('Requirements & Solution Mapping'!G4:G{last_row})`), non valori calcolati in Python.
+**Regola formule obbligatoria**: nel foglio Requirements, la riga 21 (TOTALE) contiene già le formule `=SUM(G4:G20)`, `=SUM(H4:H20)`, `=SUM(I4:I20)`, `=SUM(J4:J20)` — non sovrascriverle con valori calcolati in Python. Nel foglio Summary, tutte le celle di riepilogo economico (Design, Test, Deploy, PMO, Infrastruttura) sono già derivate da `B16` tramite percentuali fisse hardcoded nel template (`B15=B16*25%`, `B17=B16*25%`, `B18=B16*3%`, `B19=B16*10%`, `B20=B16*60%`) — non alterarle. Scrivi solo i valori interi nelle colonne G, H, I del foglio Requirements e i metadati di progetto nel foglio Summary.
 
 **Formattazione righe padre**:
 - Sfondo azzurro chiaro (`FFD6E4F0`), font bold
@@ -132,18 +148,22 @@ Mantieni gli ID nel formato `A-001`, `R-001`.
 
 ### Step 8 — Compila il foglio Summary
 
-Aggrega i GG/U e applica la regola di contingency:
+La cella `D25` (Contingency) nel template contiene la formula fissa `=D24*20%` — non modificarla. La percentuale di contingency nel template è fissa al 20% e non è parametrica.
 
-| Scenario | Contingency |
-|---|---|
-| JSON da documento funzionale dettagliato, stack noto, nessuna integrazione legacy | **15%** |
-| JSON da bando con specifiche incomplete, almeno 1 integrazione o area ambigua | **20%** |
-| JSON con ≥ 2 segnali di complessità trasversali | **25%** |
-| JSON con ≥ 1 `da_chiarire` significativo o sistemi legacy non documentati | **30%** |
+Usa la tabella seguente per **documentare nella cella Note/commento della riga Contingency** se il caso richiederebbe una percentuale diversa, segnalando all'utente di aggiornare manualmente la formula se necessario:
 
-Documenta nel foglio Summary la motivazione del percentuale scelto.
+| Scenario | Contingency consigliata | Azione |
+|---|---|---|
+| JSON da documento funzionale dettagliato, stack noto, nessuna integrazione legacy | **15%** | Segnala all'utente di cambiare `D25` in `=D24*15%` |
+| JSON da bando con specifiche incomplete, almeno 1 integrazione o area ambigua | **20%** | Nessuna modifica necessaria |
+| JSON con ≥ 2 segnali di complessità trasversali | **25%** | Segnala all'utente di cambiare `D25` in `=D24*25%` |
+| JSON con ≥ 1 `da_chiarire` significativo o sistemi legacy non documentati | **30%** | Segnala all'utente di cambiare `D25` in `=D24*30%` |
 
-Il tipo_documento nel campo `meta` del JSON è il segnale primario: `bando_gara` → default 20%; `documento_funzionale` → default 15%, da alzare se presenti `da_chiarire`.
+Nota: `D26` (Totale con contingency) e `D27` (Revenue) sono già calcolate tramite formule nel template — non sovrascriverle.
+
+Compila i metadati di progetto nel foglio Summary (Nome Gara, Cliente, Data Elaborazione, ecc.) usando i valori dal campo `meta` del JSON.
+
+Il tipo_documento nel campo `meta` del JSON è il segnale primario: `bando_gara` → default 20% (nessuna modifica); `documento_funzionale` → valuta se scendere al 15%.
 
 ## Regole operative
 
@@ -154,14 +174,29 @@ Il tipo_documento nel campo `meta` del JSON è il segnale primario: `bando_gara`
 - Ogni requisito `Alta` deve avere una motivazione nelle note.
 - Nessuna cella obbligatoria vuota nell'Excel finale.
 
-## Compilazione Excel — struttura template
+## Compilazione Excel — istruzioni operative sul template reale
 
-- Il template contiene esattamente 3 fogli: `Summary`, `Requirements & Solution Mapping`, `Assumptions & Risks`.
-- Foglio `Requirements & Solution Mapping`: righe intestazione 1-3, righe dati da 4, riga totale 21.
-- Non aggiungere, eliminare o rinominare fogli, colonne o formule già presenti.
-- Estendi le righe dati replicando la struttura esistente senza ridisegnare il layout.
-- Usa sempre formule Excel nella colonna J (es. `=G4+H4+I4`). Non sostituire mai le formule con valori calcolati in Python.
-- La formula `Build` in Summary punta a `='Requirements & Solution Mapping'!J21`: preservala.
+Il template ha 16 righe precompilate (REQ-001→REQ-016, righe 4-19), una riga vuota alla 20 e la riga TOTALE alla 21. Se i requisiti del JSON superano 16, **inserisci righe nuove prima della riga 20** replicando il formato delle righe esistenti; la riga TOTALE si sposta automaticamente — verifica sempre che la formula `Build` nel Summary punti ancora alla riga corretta.
+
+```python
+# Per ogni requisito oltre REQ-016, inserisci una riga prima del totale:
+ws_req.insert_rows(last_data_row + 1)
+# Replica formato dalla riga precedente impostando stili manualmente
+```
+
+Se i requisiti sono meno di 16, lascia vuote le righe in eccesso (il template le gestisce già con `=IFERROR(SUM(G{n}:I{n}),0)` che restituisce 0).
+
+**Non aggiungere, eliminare o rinominare fogli, colonne o intestazioni già presenti.**
+
+Scrivi solo nelle colonne G, H, I (valori interi). La colonna J si aggiorna automaticamente tramite le formule del template. Non riscrivere le formule della riga TOTALE (riga 21) né quelle del foglio Summary.
+
+Dopo aver scritto tutte le celle, esegui la ricalcolazione obbligatoria:
+
+```bash
+python scripts/recalc.py output.xlsx
+```
+
+Verifica che `status` sia `success` e che il totale `Build` nel Summary coincida con il totale GG/U dei requisiti.
 
 ## Stile e formattazione
 
