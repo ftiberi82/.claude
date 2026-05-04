@@ -23,9 +23,20 @@ Se ricevi un documento di gara invece del JSON, **non procedere**: rimanda l'ute
 
 ## Uso delle skill di formato
 
-Questa skill governa classificazione, stima e compilazione del template. Le skill di formato sono helper.
+Questa skill governa classificazione, stima e compilazione del template. Le skill di formato Anthropic sono **obbligatorie** — non bypassarle mai.
 
-- Se la skill `xlsx` è installata, usala come helper per creare e aggiornare il file `.xlsx` di output.
+**Prima di qualsiasi operazione su file**, leggi il file `SKILL.md` della skill corrispondente con il tool `view`:
+
+| Operazione | Skill da leggere (obbligatoria) |
+|---|---|
+| Creare o modificare file `.xlsx` | `/mnt/skills/public/xlsx/SKILL.md` |
+| Leggere un file `.xlsx` o `.xlsm` esistente | `/mnt/skills/public/xlsx/SKILL.md` |
+| Creare o modificare file `.docx` (offerta tecnica, relazione) | `/mnt/skills/public/docx/SKILL.md` |
+| Creare o modificare file `.pdf` | `/mnt/skills/public/pdf/SKILL.md` |
+| Leggere un file `.pdf` allegato | `/mnt/skills/public/pdf-reading/SKILL.md` |
+| Leggere un file allegato di tipo sconosciuto | `/mnt/skills/public/file-reading/SKILL.md` |
+
+Segui tutte le istruzioni della skill letta. In caso di conflitto tra questa skill e una skill di formato Anthropic, prevale la skill di formato Anthropic per tutto ciò che riguarda la manipolazione del file; questa skill prevale per classificazione, stima e struttura dei contenuti.
 
 ## Workflow
 
@@ -97,10 +108,12 @@ Segui rigorosamente la struttura del template Excel.
 - **Colonna D** — `soluzione_proposta` dal JSON (non riscrivere, copia fedelmente)
 - **Colonna E** — Componente tecnica
 - **Colonna F** — Complessità (`Alta`, `Media`, `Bassa`); per i padri: `—`
-- **Colonne G/H/I** — GG/U per FE, BE, Data; per i padri: `0`
-- **Colonna J** — Totale GG/U (G+H+I); per i padri: `0`
+- **Colonne G/H/I** — GG/U per FE, BE, Data inseriti come **valori interi** (questi sono gli input stimati); per i padri: `0`
+- **Colonna J** — Totale GG/U: inserire **sempre come formula Excel** `=G{row}+H{row}+I{row}` (es. `=G4+H4+I4`). Non calcolare il totale in Python. Per i padri: `0`
 - **Colonna K** — `priorita` dal JSON tradotto: `must_have → Must Have`, `should_have → Should Have`, `nice_to_have → Nice to Have`
 - **Colonna L** — Note: includi `inferenza` e `note_inferenza` dal JSON; per i padri: `Macro-requisito — GG/U stimati nei sub-requisiti figli`
+
+**Regola formule obbligatoria**: la riga totale nella colonna J deve usare `=SUM(J4:J{last_row})`. Tutte le celle di aggregazione nel foglio Summary devono contenere formule che puntano al foglio Requirements (es. `=SUM('Requirements & Solution Mapping'!G4:G{last_row})`), non valori calcolati in Python.
 
 **Formattazione righe padre**:
 - Sfondo azzurro chiaro (`FFD6E4F0`), font bold
@@ -147,7 +160,7 @@ Il tipo_documento nel campo `meta` del JSON è il segnale primario: `bando_gara`
 - Foglio `Requirements & Solution Mapping`: righe intestazione 1-3, righe dati da 4, riga totale 21.
 - Non aggiungere, eliminare o rinominare fogli, colonne o formule già presenti.
 - Estendi le righe dati replicando la struttura esistente senza ridisegnare il layout.
-- Senza LibreOffice: sostituisci le formule con valori interi calcolati nella colonna J.
+- Usa sempre formule Excel nella colonna J (es. `=G4+H4+I4`). Non sostituire mai le formule con valori calcolati in Python.
 - La formula `Build` in Summary punta a `='Requirements & Solution Mapping'!J21`: preservala.
 
 ## Stile e formattazione
