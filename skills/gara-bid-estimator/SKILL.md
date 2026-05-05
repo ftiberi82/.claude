@@ -14,7 +14,12 @@ Legge il file `requisiti_estratti.json` e compila il template Excel ufficiale co
 ## Input richiesti
 
 - File `requisiti_estratti.json` prodotto da `gara-req-extractor` (obbligatorio)
+- File `rfp_analysis.json` prodotto da `gara-rfp-analyzer` (opzionale ma raccomandato)
 - Template Excel da compilare: usa sempre `assets/Stima_SolutionDesign_Template.xlsx` come base, a meno che l'utente non fornisca esplicitamente un template diverso
+
+Se `rfp_analysis.json` è disponibile, leggilo subito dopo aver caricato il template: fornisce
+il valore economico della gara (usato per il confronto finale), i metadati di progetto (nome,
+cliente, scadenza) e il contesto architetturale che può influenzare le stime.
 
 Se ricevi un documento di gara invece del JSON, **non procedere**: rimanda l'utente a eseguire prima `gara-req-extractor` su quel documento.
 
@@ -31,8 +36,10 @@ ws_ar  = wb['Assumptions & Risks']
 ```
 
 **Struttura del template da rispettare:**
+- Foglio `RFP Analysis`: dati strategici estratti da `rfp_analysis.json` — compilare le 5 sezioni (valore economico, criteri aggiudicazione, formato risposta, summary tecnico, stack as-is EOL)
+- Foglio `QA Open Points`: domande aperte al cliente estratte da `rfp_analysis.open_points_qa` e `domande_bloccanti` del JSON requisiti — colonna "Risposta cliente" in giallo da compilare
 - Foglio `Requirements & Solution Mapping`: righe intestazione 1-3, righe dati REQ-001→REQ-016 dalla riga 4 alla riga 19, riga vuota 20, riga TOTALE alla riga 21
-- Foglio `Summary`: contiene dati di progetto, riepilogo economico e formula `Build` che punta a `='Requirements & Solution Mapping'!J21` — non alterarla
+- Foglio `Summary`: contiene dati di progetto (righe 5-12, incluse data sottomissione domande riga 11 e data consegna offerta riga 12), riepilogo economico e formula `Build` in `B18` che punta a `='Requirements & Solution Mapping'!J21` — non alterarla. Riga TOTALE in riga 26, Contingency in D27, Totale con contingency in D28, Revenue in D29
 - Foglio `Assumptions & Risks`: sezione A (assunzioni) e sezione B (rischi) già strutturate — aggiungi righe in coda a ciascuna sezione
 
 **Regola critica**: non ricreare mai il file da zero. Parti sempre dal template caricato, scrivi solo nelle celle dati e aggiungi righe dove necessario. Font, colori, bordi, formule di aggregazione esistenti devono essere preservati esattamente.
@@ -58,7 +65,19 @@ Segui tutte le istruzioni della skill letta. In caso di conflitto tra questa ski
 
 ### Step 1 — Leggi e valida il JSON
 
-Il template è già caricato in memoria (vedi sezione precedente). Carica ora `requisiti_estratti.json`. Verifica che:
+Il template è già caricato in memoria (vedi sezione precedente). Prima di leggere il JSON, esegui la validazione automatica:
+
+```bash
+python3 scripts/validate_json.py requisiti_estratti.json
+```
+
+Lo script verifica: campi obbligatori, aree funzionali valide, GG/U non negativi o anomali, duplicati, coerenza gerarchia padre-figlio, certezza e fonte compilate.
+
+- Se `status: errors_found` — **non procedere**: correggi gli errori segnalati o chiedi chiarimenti all'utente
+- Se `status: warnings_found` — procedi ma segnala i warning all'utente prima di chiudere il file
+- Se `status: success` — procedi normalmente
+
+Carica ora `requisiti_estratti.json`. Verifica che:
 - Il campo `meta` sia completo (documento, tipo, cliente).
 - Ogni requisito abbia `id`, `area_funzionale`, `soluzione_proposta`, `inferenza`, `priorita`.
 - Le aree trasversali obbligatorie siano presenti (Sicurezza e Compliance, Infrastruttura e DevOps).
@@ -118,16 +137,16 @@ Se hai dubbi sulla classificazione o sulla stima di un requisito specifico, cons
 Segui rigorosamente la struttura del template Excel.
 
 **Colonne e regole**:
-- **Colonna A** — ID gerarchico dal JSON (`REQ-001`, `REQ-001.1`, ecc.)
+- **Colonna A** — scrivi l'ID del requisito (`REQ-001`, `REQ-001.1`, ecc.)
 - **Colonna B** — Area funzionale: usa il label esatto del template
-- **Colonna C** — `testo_bando` dal JSON
-- **Colonna D** — `soluzione_proposta` dal JSON (non riscrivere, copia fedelmente)
+- **Colonna C** — scrivi direttamente il testo del campo `testo_bando`. Non scrivere il nome del campo né riferimenti al JSON.
+- **Colonna D** — scrivi direttamente il testo del campo `soluzione_proposta` del requisito. Non scrivere il nome del campo, non scrivere riferimenti al JSON, non scrivere formule. Esempio: se `soluzione_proposta` vale "Implementare form di login con validazione lato client e autenticazione OAuth2", scrivi esattamente quel testo nella cella.
 - **Colonna E** — Componente tecnica
 - **Colonna F** — Complessità (`Alta`, `Media`, `Bassa`); per i padri: `—`
 - **Colonne G/H/I** — GG/U per FE, BE, Data inseriti come **valori interi** (questi sono gli input stimati); per i padri: `0`
 - **Colonna J** — Totale GG/U: la formula `=IFERROR(SUM(G{n}:I{n}),0)` è già presente nel template per ogni riga. **Non sovrascriverla mai** — scrivi solo i valori interi nelle colonne G, H, I e lascia che la colonna J si calcoli da sola. Per i padri: inserisci `0` nelle colonne G, H, I.
-- **Colonna K** — `priorita` dal JSON tradotto: `must_have → Must Have`, `should_have → Should Have`, `nice_to_have → Nice to Have`
-- **Colonna L** — Note: includi `inferenza` e `note_inferenza` dal JSON; per i padri: `Macro-requisito — GG/U stimati nei sub-requisiti figli`
+- **Colonna K** — scrivi la priorità tradotta in italiano: `must_have → Must Have`, `should_have → Should Have`, `nice_to_have → Nice to Have`
+- **Colonna L** — scrivi il testo dei campi `inferenza` e `note_inferenza` separati da spazio. Per i requisiti padre scrivi: `Macro-requisito — GG/U stimati nei sub-requisiti figli`. Non scrivere i nomi dei campi.
 
 **Regola formule obbligatoria**: nel foglio Requirements, la riga 21 (TOTALE) contiene già le formule `=SUM(G4:G20)`, `=SUM(H4:H20)`, `=SUM(I4:I20)`, `=SUM(J4:J20)` — non sovrascriverle con valori calcolati in Python. Nel foglio Summary, tutte le celle di riepilogo economico (Design, Test, Deploy, PMO, Infrastruttura) sono già derivate da `B16` tramite percentuali fisse hardcoded nel template (`B15=B16*25%`, `B17=B16*25%`, `B18=B16*3%`, `B19=B16*10%`, `B20=B16*60%`) — non alterarle. Scrivi solo i valori interi nelle colonne G, H, I del foglio Requirements e i metadati di progetto nel foglio Summary.
 
@@ -161,9 +180,50 @@ Usa la tabella seguente per **documentare nella cella Note/commento della riga C
 
 Nota: `D26` (Totale con contingency) e `D27` (Revenue) sono già calcolate tramite formule nel template — non sovrascriverle.
 
-Compila i metadati di progetto nel foglio Summary (Nome Gara, Cliente, Data Elaborazione, ecc.) usando i valori dal campo `meta` del JSON.
+Compila i metadati di progetto nel foglio Summary (Nome Gara, Cliente, Data Elaborazione, ecc.)
+usando i valori dal campo `meta` del JSON — o da `rfp_analysis.json` se disponibile e più completo.
 
-Il tipo_documento nel campo `meta` del JSON è il segnale primario: `bando_gara` → default 20% (nessuna modifica); `documento_funzionale` → valuta se scendere al 15%.
+Il tipo_documento nel campo `meta` del JSON è il segnale primario: `bando_gara` → default 20%
+(nessuna modifica); `documento_funzionale` → valuta se scendere al 15%.
+
+### Compila il foglio RFP Analysis (solo se `rfp_analysis.json` disponibile)
+
+Trasferisci i dati dal JSON al foglio — le celle in azzurro sono le destinazioni:
+
+- Sezione 1 (Valore economico): `importo_base_asta`, `massimale`, `durata_contratto_mesi`, `opzioni_rinnovo`, `modalita_prezzi`
+- Sezione 2 (Criteri aggiudicazione): per ogni criterio in `criteri_aggiudicazione.criteri` compila una riga con nome, punteggio, peso%, priorità, sotto-criteri. Inserisci `raccomandazione` nella cella gialla "Raccomandazione strategica"
+- Sezione 3 (Formato risposta): compila ogni riga da `formato_risposta`
+- Sezione 4 (Summary tecnico): compila da `summary_tecnico` — scope applicativo, tipo progetto, architettura, stack richiesto/preferito, integrazioni, utenti
+- Sezione 5 (Stack as-is EOL): compila da `stack_asis.componenti` se `applicable: true`; inserisci `sintesi_rischio` nell'ultima riga rossa
+
+### Compila il foglio QA Open Points
+
+Aggiungi una riga per ogni voce in `rfp_analysis.open_points_qa` e una per ogni voce in `requisiti_estratti.domande_bloccanti`. Usa prefisso `QA-` per le prime, `Q-` per le seconde.
+
+Per ogni riga: ID, categoria, riferimento bando, domanda, opzioni/scenari, impatto stima. Le colonne "Risposta cliente" (gialla) e "Stato" restano vuote — sono da compilare dal cliente.
+
+### Verifica valore economico (solo se `rfp_analysis.json` disponibile)
+
+Dopo aver compilato il Summary, esegui il confronto tra stima e valore di gara:
+
+1. Leggi `rfp_analysis.valore_economico.importo_base_asta` (importo netto, IVA esclusa).
+2. Leggi il valore calcolato in `D26` (Totale con contingency) dal foglio Summary.
+3. Calcola la percentuale: `(D26 / importo_base_asta) * 100`.
+
+Applica questa logica e segnala all'utente **prima di chiudere il file**:
+
+| Scenario | Azione |
+|---|---|
+| D26 < 70% della base d'asta | ⚠️ Stima molto al di sotto della base — verifica che nessun requisito sia stato omesso o sottostimato |
+| D26 tra 70% e 100% della base d'asta | ✅ Stima compatibile con la base d'asta |
+| D26 tra 100% e 120% della base d'asta | ⚠️ Stima leggermente superiore alla base — valuta con il commerciale se rivedere scope o contingency |
+| D26 > 120% della base d'asta | 🚨 Stima significativamente superiore alla base d'asta — non procedere senza revisione: il progetto non è fattibile al valore indicato |
+
+Riporta il confronto in una nota nella cella adiacente alla riga `D26` del Summary, con formato:
+`"Base d'asta: €[importo] — Stima: €[D26] ([percentuale]%)"`.
+
+Se `rfp_analysis.json` non è disponibile, salta questa verifica e segnala all'utente che
+per un confronto con la base d'asta è necessario eseguire prima `gara-rfp-analyzer`.
 
 ## Regole operative
 
@@ -173,6 +233,29 @@ Il tipo_documento nel campo `meta` del JSON è il segnale primario: `bando_gara`
 - **Ogni `stimato` → assunzione in A&R**.
 - Ogni requisito `Alta` deve avere una motivazione nelle note.
 - Nessuna cella obbligatoria vuota nell'Excel finale.
+
+## Tracciabilità — regole obbligatorie
+
+Ogni cella non banale dell'Excel deve avere una fonte verificabile o un ragionamento esplicito. Questo è il meccanismo che permette all'utente di verificare la stima senza rileggere il bando.
+
+**Colonna M `Fonte / Pag.`** (foglio Requirements):
+Inserisci per ogni requisito la pagina e sezione del bando da cui proviene + max 15 parole del testo originale. Leggi il campo `fonte_pag` e `fonte_estratto` dal JSON.
+
+**Colonna N `Certezza`** (foglio Requirements):
+Copia dal campo `certezza` del JSON: `🟢` = estratto, `🟡` = inferito, `🔴` = assunto.
+
+**Certezza per le stime GG/U** — ogni riga del foglio Requirements ha anche una valutazione di certezza della *stima*, distinta dalla certezza del requisito. Usa la colonna N anche per questo:
+- `🟢` se la stima segue direttamente da `regole_stima.md` senza correttivi soggettivi
+- `🟡` se hai applicato correttivi da `segnali_complessita.md` con ragionamento
+- `🔴` se la stima è puramente ipotetica per mancanza di informazioni (il requisito ha `da_chiarire: true`)
+
+**Foglio Audit Trail** — aggiungi una riga per ogni decisione non ovvia sulla stima:
+- Scelta di complessità (Alta/Media/Bassa) con ragionamento
+- Applicazione di un correttivo da `segnali_complessita.md`
+- Scelta della percentuale di contingency
+- Qualsiasi stima con `certezza: assunto`
+
+Per ogni riga: ID (`AT-EST-NNN`), foglio = `Requirements` o `Summary`, campo = ID requisito o cella, decisione, fonte (riferimento a `regole_stima.md` o `segnali_complessita.md`), ragionamento, alternativa scartata.
 
 ## Compilazione Excel — istruzioni operative sul template reale
 
@@ -193,7 +276,7 @@ Scrivi solo nelle colonne G, H, I (valori interi). La colonna J si aggiorna auto
 Dopo aver scritto tutte le celle, esegui la ricalcolazione obbligatoria:
 
 ```bash
-python scripts/recalc.py output.xlsx
+python3 /mnt/skills/public/xlsx/scripts/recalc.py output.xlsx
 ```
 
 Verifica che `status` sia `success` e che il totale `Build` nel Summary coincida con il totale GG/U dei requisiti.
@@ -218,3 +301,4 @@ Il file output deve replicare esattamente font, allineamento, bordi e colori del
 - Per applicare correttivi trasversali: `references/segnali_complessita.md`
 - Per esempi pratici di mapping: `references/esempi_mapping.md`
 - Per verificare la classificazione di un'area: `references/aree_funzionali.md`
+- Per il confronto con il valore di gara: `rfp_analysis.json` (prodotto da `gara-rfp-analyzer`)

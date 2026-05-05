@@ -18,6 +18,14 @@ Legge un documento di gara o funzionale e produce un elenco strutturato e valida
 ## Input richiesti
 
 - Documento di gara o funzionale in `pdf`, `docx`, `xlsx`, `csv`, `ppt` o `pptx`
+- File `rfp_analysis.json` prodotto da `gara-rfp-analyzer` (opzionale ma raccomandato)
+
+Se `rfp_analysis.json` è disponibile, leggilo prima di qualsiasi altra cosa: fornisce il contesto
+strategico (tipo progetto, stack as-is, scope applicativo) che guida la classificazione e la
+decomposizione dei requisiti. In particolare:
+- `summary_tecnico.tipo_progetto` determina se applicare la verifica brownfield (Step 1b)
+- `summary_tecnico.stack_tecnologico_richiesto` pre-popola il contesto tecnico dell'estrazione
+- `open_points_qa` dal file RFP non va ripetuto nelle `domande_bloccanti` del JSON — sono domande distinte
 
 Se il documento non è leggibile o non contiene requisiti stimabili, fermati e comunica il problema all'utente.
 
@@ -194,6 +202,40 @@ Il tipo di documento non cambia il workflow, ma determina il livello di dettagli
 - Bando → alta ambiguità strutturale: inferisci liberamente seguendo le regole chiuse, documenta ogni inferenza.
 - Documento funzionale → usa i dati già presenti (schermate nominate, endpoint API, entità): non marcare `[stimato]` ciò che è già esplicitato.
 
+### Step 1b — Brownfield: estrai e verifica stack as-is (solo se applicabile)
+
+**Eseguire solo se** `rfp_analysis.json` indica `tipo_progetto: brownfield | evolutiva | migrazione`,
+oppure se il documento descrive esplicitamente un sistema esistente con versioni tecnologiche citate.
+In tutti gli altri casi (nuovo sviluppo), salta direttamente allo Step 2.
+
+Se `rfp_analysis.json` è disponibile e contiene già `stack_asis` compilato da `gara-rfp-analyzer`,
+**non ripetere la verifica**: leggi il campo e riportane la sintesi nel campo `meta.stack_asis_sintesi`
+del JSON di output.
+
+Se invece la verifica non è stata fatta in precedenza:
+1. Estrai dal documento tutte le versioni tecnologiche citate per il sistema as-is (linguaggi, framework, database, OS, middleware).
+2. Per ciascuna versione, verifica stato EOL/LTS usando `references/eol_lts.md` (se coperta) o web search `"{tecnologia} {versione} end of life support date"` (se non coperta).
+3. Popola il campo `meta.stack_asis` del JSON con la struttura:
+
+```json
+"stack_asis": [
+  {
+    "nome": "Java",
+    "versione": "8",
+    "stato": "LTS",
+    "fine_supporto": "2026-11",
+    "fonte": "reference",
+    "rischio": "medio",
+    "nota": "LTS su OpenJDK Temurin, EOL su Oracle commercial"
+  }
+]
+```
+
+4. Aggiungi `meta.stack_asis_sintesi` con un giudizio complessivo in max 2 righe.
+5. Se sono presenti componenti in EOL, aggiungi una voce in `domande_bloccanti` con categoria `tecnica`
+   e impatto `alto`: es. "Java 8 risulta EOL — è previsto un upgrade contestuale al nuovo sviluppo o
+   la manutenzione prosegue sulla versione attuale?".
+
 ### Step 2 — Applica il decision tree per ogni blocco funzionale
 
 Per ogni blocco funzionale del documento, prima di creare righe, applica il **decision tree** di `references/decomposizione_requisiti.md`:
@@ -301,6 +343,73 @@ Eseguito **solo dopo che l'utente ha confermato** (con o senza correzioni).
 
 **Non procedere alla stima.** Il file JSON è l'unico output di questa skill.
 
+### Step 8b — Genera il file open_points.xlsx
+
+Eseguito subito dopo la scrittura del JSON, senza attendere ulteriore conferma.
+
+Prendi tutte le voci presenti in `domande_bloccanti` del JSON appena scritto e producile come
+file Excel `open_points.xlsx` — da condividere con il cliente per raccogliere le risposte.
+
+Prima di scrivere il file, leggi `/mnt/skills/public/xlsx/SKILL.md` per seguire le istruzioni
+di ambiente. Poi genera il file con openpyxl con questa struttura:
+
+**Foglio: "Open Points"**
+
+| Colonna | Header | Contenuto |
+|---|---|---|
+| A | ID | `Q-001`, `Q-002`, ... |
+| B | Area | `area` della domanda bloccante |
+| C | Riferimento bando | `testo_bando` della domanda bloccante |
+| D | Domanda | `domanda` della domanda bloccante |
+| E | Opzioni | `opzioni` join con newline |
+| F | Impatto stima | `impatto_stima` |
+| G | Risposta cliente | vuota — da compilare dal cliente |
+| H | Stato | `Aperto` (default) |
+
+Formattazione:
+- Riga 1: intestazioni in bold, sfondo grigio chiaro (`D9D9D9`), testo nero, altezza 20px
+- Colonne A-B: larghezza 12
+- Colonna C-D: larghezza 45, wrap text attivo
+- Colonna E-F: larghezza 35, wrap text attivo
+- Colonna G: larghezza 40, sfondo giallo chiaro (`FFFDE7`) — evidenzia che va compilata
+- Colonna H: larghezza 12
+- Righe dati: altezza minima 40px, bordi sottili su tutte le celle
+- Freeze della riga 1 (intestazioni sempre visibili)
+
+Dopo aver scritto `open_points.xlsx`, comunica all'utente:
+- `requisiti_estratti.json` → da passare a `gara-bid-estimator-v3` per la stima
+- `open_points.xlsx` → da inviare al cliente per raccogliere le risposte alle domande bloccanti
+
+## Tracciabilità — regole obbligatorie
+
+Per ogni requisito estratto devi documentare fonte e certezza, sia nel JSON che nelle colonne M e N del foglio `Requirements & Solution Mapping`.
+
+**Nel JSON**, aggiungi a ogni requisito i campi:
+```json
+{
+  "id": "REQ-001",
+  "certezza": "estratto | inferito | assunto",
+  "fonte_pag": "pag. 12, Sez. 3.2 — Requisiti di accesso",
+  "fonte_estratto": "Il sistema deve supportare autenticazione SSO con provider SAML 2.0"
+}
+```
+
+**Criteri di certezza:**
+- `estratto` — il requisito è presente verbatim o quasi nel documento; cita pagina e sezione, riporta max 20 parole del testo originale in `fonte_estratto`
+- `inferito` — il requisito non è esplicito ma è ricavabile dal contesto (es. un requisito di logging dedotto da un requisito di audit); spiega il ragionamento in `note_inferenza`
+- `assunto` — il requisito è assente nel documento ma necessario per completezza tecnica; va marcato come domanda bloccante
+
+**Nell'Excel** (colonne M e N del foglio Requirements):
+- Colonna M `Fonte / Pag.`: inserisci pagina, sezione e max 15 parole del testo originale
+- Colonna N `Certezza`: inserisci `🟢` per estratto, `🟡` per inferito, `🔴` per assunto
+
+**Audit Trail** — aggiungi una riga nel foglio `Audit Trail` per ogni:
+- Requisito padre creato per aggregazione (campo `decomposizione`)
+- Requisito con certezza `inferito` o `assunto`
+- Scelta di area funzionale non ovvia
+
+Per ogni riga dell'Audit Trail: ID progressivo (`AT-REQ-NNN`), foglio = `Requirements`, campo = ID requisito, decisione presa, fonte nel bando, ragionamento, alternativa scartata se presente.
+
 ## Regole operative
 
 - **Decomponi prima di classificare**: applica sempre il decision tree prima di assegnare l'area funzionale.
@@ -317,3 +426,5 @@ Eseguito **solo dopo che l'utente ha confermato** (con o senza correzioni).
 - Per applicare il decision tree e le regole chiuse di inferenza: `references/decomposizione_requisiti.md`
 - Per classificare un requisito in area funzionale: `references/aree_funzionali.md`
 - Per esempi pratici di mapping e decomposizione: `references/esempi_mapping.md`
+- Per verificare stato EOL/LTS di versioni tecnologiche (Step 1b): `references/eol_lts.md`
+- Per generare il file Excel open_points (Step 8b): `/mnt/skills/public/xlsx/SKILL.md`
