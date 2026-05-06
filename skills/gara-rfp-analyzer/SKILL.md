@@ -224,8 +224,7 @@ Leggi tutto il documento senza saltare sezioni. Annota mentalmente:
 
 Cerca: importo a base d'asta, massimale, durata, opzioni di proroga o rinnovo.
 Attenzione: nei bandi pubblici italiani l'importo può essere espresso al netto IVA — verifica sempre.
-Se sono presenti lotti distinti, crea un campo `lotti` con la lista e segnala all'utente di specificare
-a quale lotto si sta rispondendo.
+Se sono presenti lotti distinti, crea un campo `lotti` con la lista. Analizza tutti i lotti e produci l'analisi sul lotto con importo maggiore come default; documenta questa scelta nell'`_audit_trail`.
 
 ### Step 3 — Compila `criteri_aggiudicazione`
 
@@ -272,9 +271,9 @@ Identifica le lacune informative che impattano la costruzione dell'offerta — n
 
 Ordina per impatto (alto prima) e limita a 10 voci massimo.
 
-### Step 8 — Presenta il riepilogo e attendi conferma
+### Step 8 — Scrivi il JSON e presenta il riepilogo
 
-**Non scrivere ancora il file JSON.** Presenta all'utente un riepilogo strutturato:
+Scrivi immediatamente `rfp_analysis.json` senza attendere conferma. Poi presenta all'utente un riepilogo sintetico in Markdown:
 
 > **Analisi RFP — [Nome Progetto]**
 >
@@ -286,16 +285,9 @@ Ordina per impatto (alto prima) e limita a 10 voci massimo.
 >
 > **Stack as-is:** [sintesi rischio EOL/LTS o "N/A — nuovo sviluppo"]
 >
-> **Open point QA:** [N domande, elenco titoli]
+> **Open point QA:** [N domande da fare al cliente — vedi `open_points_qa` nel JSON]
 >
-> Puoi chiedere approfondimenti su qualsiasi sezione o scrivere **"conferma"** per generare `rfp_analysis.json`.
-
-Attendi la risposta dell'utente. Non procedere oltre.
-
-### Step 9 — Scrivi il JSON
-
-Eseguito solo dopo conferma. Incorpora eventuali correzioni e scrivi `rfp_analysis.json`.
-Comunica all'utente che il file è pronto e può essere passato a `gara-req-extractor` come contesto aggiuntivo.
+> `rfp_analysis.json` generato. Passa questo file a `gara-req-extractor` per l'estrazione dei requisiti.
 
 ## Tracciabilità — regole obbligatorie
 
@@ -338,9 +330,25 @@ Includi nell'audit trail almeno: metodo aggiudicazione (se non esplicitato), mod
 
 ## Regole operative
 
+**Principio assoluto — zero domande all'utente**: questa skill non fa mai domande in chat. Nessuna eccezione.
+
+Quando un'informazione è ambigua o mancante:
+- Fai l'assunzione più ragionevole basata sul contesto del documento
+- Documentala nel campo `_audit_trail` con `certezza: assunto`
+- Se impatta l'offerta, aggiungila in `open_points_qa` come domanda per il **cliente** — non per l'utente che usa la skill
+
+**Vietato in ogni circostanza:**
+- Proporre opzioni o scenari alternativi (es. "preferisci Agile o Waterfall?", "vuoi che aggiunga il margine commerciale?")
+- Chiedere conferma prima di procedere a uno step successivo
+- Presentare "prossimi passi possibili" chiedendo se continuare
+- Interrompere per ambiguità non critiche
+- Suggerire varianti di scope, team, approccio progettuale o stima
+
+**Nessuna interruzione consentita.** Anche se il documento è parziale o ambiguo: assumi e documenta, non chiedere.
+
 - **Non estrarre requisiti funzionali**: lo farà `gara-req-extractor`. Questa skill si ferma all'analisi strategica.
 - **Non stimare GG/U**: nessun valore di effort in output.
-- **Non scrivere il JSON prima della conferma**: il riepilogo Markdown è l'output intermedio.
+- **Scrivi il JSON immediatamente** al termine dell'analisi, senza attendere conferma. Il riepilogo Markdown viene presentato dopo la scrittura del file.
 - **Sii conservativo sugli importi**: se ci sono dubbi su IVA inclusa/esclusa, riporta entrambi i valori.
 - **Le domande QA devono essere azionabili**: ogni domanda deve avere un impatto misurabile sull'offerta.
 - **Per la verifica EOL/LTS**: preferisci la reference locale per velocità; usa web search solo per versioni non coperte. Documenta sempre la fonte.

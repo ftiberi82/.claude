@@ -5,6 +5,7 @@ description: >
   TRIGGER quando: l'utente fornisce un file `requisiti_estratti.json` già validato e chiede di produrre la stima, compilare il template Excel, generare l'offerta tecnica.
   PREREQUISITO OBBLIGATORIO: il file `requisiti_estratti.json` deve essere stato prodotto e validato tramite la skill `gara-req-extractor`. Non accettare come input il documento di gara originale — rimanda l'utente alla skill di estrazione.
   SKIP se non è disponibile un file JSON validato: in quel caso, indica all'utente di eseguire prima `gara-req-extractor`.
+  INTERRUZIONI: questa skill può sospendersi dopo la validazione del JSON per richiedere informazioni bloccanti sulla stima. In quel caso restituisce le domande all'utente e attende risposta prima di compilare il template. Questo è comportamento intenzionale, non un errore — non riprendere automaticamente.
 ---
 
 # Gara Bid Estimator v3
@@ -85,6 +86,30 @@ Carica ora `requisiti_estratti.json`. Verifica che:
 Se il file è malformato o incompleto, segnala il problema e chiedi all'utente di rieseguire `gara-req-extractor`.
 
 **Regola di fedeltà**: non modificare la struttura dei requisiti ricevuti. Non aggiungere figli a requisiti già marcati come `singolo`. Non unire requisiti separati. Non rinominare aree funzionali. Se ritieni che un requisito sia mal classificato, segnalalo nelle note del foglio Excel senza alterare il JSON.
+
+### Step 1b — Verifica domande bloccanti e decidi
+
+Dopo la validazione, verifica se esistono domande bloccanti valide secondo i criteri nelle Regole operative.
+
+**Caso A — Nessuna domanda bloccante**: procedi immediatamente allo Step 2 senza interruzioni.
+
+**Caso B — Ci sono domande bloccanti**: presenta SOLO quelle in questo formato e **FERMATI**:
+
+> ⚠️ **Prima di stimare ho bisogno di [N] informazioni bloccanti:**
+>
+> **Q-001 — [REQ-XXX] [area]** *(delta stima: +X / -Y GG/U)*
+> [testo domanda specifica sul requisito]
+> Opzioni: A) ... | B) ... | C) Non so — userò complessità Media
+>
+> Rispondi con numero e opzione (es. "Q-001: B").
+
+**STOP — input utente richiesto prima di procedere.**
+Questa skill non può continuare senza le risposte alle domande sopra.
+Non eseguire step successivi. Non chiamare altre skill. Non generare file.
+Restituisci il controllo all'utente e attendi la sua risposta.
+Riprendere dallo Step 2 solo dopo aver ricevuto le risposte.
+
+Dopo aver ricevuto le risposte, incorporale nella stima e procedi allo Step 2.
 
 ### Step 2 — Assegna la complessità
 
@@ -198,9 +223,17 @@ Trasferisci i dati dal JSON al foglio — le celle in azzurro sono le destinazio
 
 ### Compila il foglio QA Open Points
 
-Aggiungi una riga per ogni voce in `rfp_analysis.open_points_qa` e una per ogni voce in `requisiti_estratti.domande_bloccanti`. Usa prefisso `QA-` per le prime, `Q-` per le seconde.
+Questo foglio è l'unica fonte di domande per il cliente — sostituisce qualsiasi file `open_points.xlsx` separato.
 
-Per ogni riga: ID, categoria, riferimento bando, domanda, opzioni/scenari, impatto stima. Le colonne "Risposta cliente" (gialla) e "Stato" restano vuote — sono da compilare dal cliente.
+Aggiungi le righe in questo ordine e con questi prefissi:
+1. Voci da `rfp_analysis.open_points_qa` → prefisso `QA-` (domande strategiche sull'offerta)
+2. Voci da `requisiti_estratti.domande_bloccanti` → prefisso `Q-` (domande di scope sui requisiti)
+
+Per ogni riga compila: ID, categoria, riferimento bando (testo esatto dal documento), domanda, opzioni/scenari, impatto stima.
+
+Le colonne "Risposta cliente" (gialla) e "Stato" (`Aperto`) restano vuote — da compilare dal cliente.
+
+**Regola di unicità**: se una domanda è presente in entrambe le fonti con testo sostanzialmente identico, includi solo la versione `QA-` (dall'rfp-analyzer) ed elimina il duplicato `Q-`. Segnala la deduplicazione nell'Audit Trail.
 
 ### Verifica valore economico (solo se `rfp_analysis.json` disponibile)
 
@@ -225,7 +258,7 @@ Riporta il confronto in una nota nella cella adiacente alla riga `D26` del Summa
 Se `rfp_analysis.json` non è disponibile, salta questa verifica e segnala all'utente che
 per un confronto con la base d'asta è necessario eseguire prima `gara-rfp-analyzer`.
 
-## Regole operative
+## Regole di fedeltà
 
 - **Fedeltà al JSON**: non alterare struttura, classificazione o numero di requisiti ricevuti.
 - **Non ridecomporre**: se il JSON ha un requisito `singolo` per un'area, non aggiungere figli. La decomposizione era compito dell'estrazione.
@@ -242,12 +275,12 @@ Ogni cella non banale dell'Excel deve avere una fonte verificabile o un ragionam
 Inserisci per ogni requisito la pagina e sezione del bando da cui proviene + max 15 parole del testo originale. Leggi il campo `fonte_pag` e `fonte_estratto` dal JSON.
 
 **Colonna N `Certezza`** (foglio Requirements):
-Copia dal campo `certezza` del JSON: `🟢` = estratto, `🟡` = inferito, `🔴` = assunto.
+Copia dal campo `certezza` del JSON: `E` = estratto (sfondo verde), `I` = inferito (sfondo giallo), `A` = assunto (sfondo rosso).
 
 **Certezza per le stime GG/U** — ogni riga del foglio Requirements ha anche una valutazione di certezza della *stima*, distinta dalla certezza del requisito. Usa la colonna N anche per questo:
-- `🟢` se la stima segue direttamente da `regole_stima.md` senza correttivi soggettivi
-- `🟡` se hai applicato correttivi da `segnali_complessita.md` con ragionamento
-- `🔴` se la stima è puramente ipotetica per mancanza di informazioni (il requisito ha `da_chiarire: true`)
+- `E` se la stima segue direttamente da `regole_stima.md` senza correttivi soggettivi
+- `I` se hai applicato correttivi da `segnali_complessita.md` con ragionamento
+- `A` se la stima è puramente ipotetica per mancanza di informazioni (il requisito ha `da_chiarire: true`)
 
 **Foglio Audit Trail** — aggiungi una riga per ogni decisione non ovvia sulla stima:
 - Scelta di complessità (Alta/Media/Bassa) con ragionamento
@@ -294,6 +327,24 @@ Il file output deve replicare esattamente font, allineamento, bordi e colori del
 - Ogni assunzione ha origine nel JSON (da `note_inferenza` o `domande_bloccanti`)
 - I requisiti `da_chiarire` sono visibili e marcati nel foglio Excel
 - Linguaggio professionale, adatto a un documento di offerta
+
+## Regole operative
+
+**Principio — human in the loop solo per domande bloccanti**: il flusso procede in autonomia senza interruzioni tra gli step. L'unica interruzione consentita è subito dopo la validazione del JSON (Step 1), se esistono domande bloccanti che soddisfano i criteri sotto.
+
+**Criteri per una domanda bloccante valida** (almeno una condizione deve essere vera):
+- Il JSON contiene `da_chiarire: true` su requisiti ad alto peso (> 10 GG/U) e la risposta cambia la complessità tra Bassa e Alta
+- Manca un'informazione che rende impossibile scegliere tra complessità Bassa e Alta su un requisito rilevante, e non è inferibile dal contesto
+- Le `domande_bloccanti` del JSON hanno impatto `alto` e non sono state già risolte dall'utente in precedenza
+
+**Vietato in ogni circostanza:**
+- Proporre approcci progettuali (Agile/Waterfall, durata progetto, team size)
+- Offrire scenari di stima alternativi (es. "con o senza middleware")
+- Chiedere conferma tra step
+- Presentare "prossimi passi" chiedendo se continuare
+- Ripetere domande già presenti nel JSON se l'utente ha già risposto
+
+**Meccanica**: vedi Step 1b nel workflow — il controllo avviene lì, subito dopo la validazione.
 
 ## Riferimenti da leggere solo quando servono
 

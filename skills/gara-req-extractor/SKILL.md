@@ -5,9 +5,10 @@ description: >
   TRIGGER quando: il documento è un capitolato, bando, CSA, RFP, disciplinare tecnico, analisi funzionale, SRS, specifiche funzionali, backlog di prodotto;
   l'utente chiede di estrarre requisiti, analizzare il bando, classificare i requisiti per area funzionale;
   il file caricato ha estensione `.ppt` o `.pptx` (presentazione PowerPoint).
-  OUTPUT: tabella Markdown riepilogativa per validazione umana, poi file JSON `requisiti_estratti.json` scritto solo dopo conferma utente.
+  OUTPUT: tabella Markdown riepilogativa + file JSON `requisiti_estratti.json` scritto immediatamente dopo.
   SKIP se il documento è un contratto esecutivo, verbale, fattura, collaudo o documento privo di requisiti stimabili.
   SEQUENZA: questa skill va eseguita PRIMA di gara-bid-estimator. Non stimare GG/U — fermarsi al JSON.
+  INTERRUZIONI: questa skill può sospendersi al termine dell'estrazione per richiedere chiarimenti di scope bloccanti. In quel caso restituisce le domande all'utente e attende risposta prima di procedere. Questo è comportamento intenzionale, non un errore — non riprendere automaticamente.
 ---
 
 # Gara Req Extractor
@@ -299,86 +300,65 @@ Prima di chiudere il JSON, verifica che siano presenti righe per le aree trasver
 
 Popola il campo `aree_trasversali_aggiunte` con le aree inserite automaticamente.
 
-### Step 7 — Presenta la tabella riepilogativa e attendi validazione
-
-**Non scrivere ancora il file JSON.** La scrittura del JSON è onerosa e viene posticipata a dopo la validazione umana, per evitare di riscriverlo se emergono correzioni o risposte alle domande bloccanti.
+### Step 7 — Presenta la tabella riepilogativa
 
 Presenta all'utente un **riepilogo in tabella Markdown** con:
 - ID, area funzionale, descrizione sintetica, tipo (padre/figlio/singolo), inferenza
 - Conteggio totale e per tipo di inferenza
-- Elenco numerato delle domande bloccanti (se presenti), ciascuna con le opzioni e l'impatto stimativo
-- Elenco delle sezioni skippate allo Step 0, con motivazione sintetica per ciascuna (es. "contesto as-is", "requisiti fornitore", "milestone contrattuali"). Formato:
+- Elenco delle sezioni skippate allo Step 0, con motivazione sintetica per ciascuna. Formato:
 
   > **Sezioni skippate (N% del documento):**
   > - [titolo sezione] → [motivazione skip in max 8 parole]
-  > - ...
-  > Se una sezione è stata skippata per errore, segnalalo nella risposta di conferma:
-  > la rileggo e integro i requisiti mancanti prima di scrivere il JSON.
 
-Usa questo formato:
+Usa questo formato per la tabella:
 
 > **Riepilogo estratto: N requisiti (X espliciti, Y stimati, Z da chiarire)**
 >
 > [tabella Markdown]
->
-> **Domande bloccanti prima di procedere:**
-> Q-001: [testo domanda + opzioni + impatto]
-> Q-002: ...
->
-> Puoi modificare l'elenco, aggiungere o rimuovere requisiti, e rispondere alle domande.
-> Quando sei pronto, scrivi **"conferma"** (con eventuali correzioni e risposte alle domande)
-> e genererò il file `requisiti_estratti.json`.
 
-Attendi la risposta dell'utente. Non procedere oltre.
+### Step 7b — Verifica domande bloccanti e decidi
+
+Dopo la tabella, verifica se esistono domande che soddisfano i criteri bloccanti definiti nelle Regole operative.
+
+**Caso A — Nessuna domanda bloccante**: procedi immediatamente allo Step 8, scrivi il JSON senza interruzioni.
+
+**Caso B — Ci sono domande bloccanti**: presenta SOLO le domande in questo formato e **FERMATI**:
+
+> ⚠️ **Prima di procedere ho bisogno di [N] chiarimenti di scope:**
+>
+> **Q-001 — [area]** *(motivo: [fuori scope / integrazione ambigua / informazione strutturale mancante])*
+> [testo domanda con riferimento alla sezione del bando]
+> Opzioni: A) ... | B) ... | C) Non so — farò un'assunzione conservativa
+>
+> **Q-002 — [area]** *(motivo: ...)*
+> [testo domanda]
+> Opzioni: A) ... | B) ...
+>
+> Rispondi con numero e opzione (es. "Q-001: B, Q-002: A").
+
+**STOP — input utente richiesto prima di procedere.**
+Questa skill non può continuare senza le risposte alle domande sopra.
+Non eseguire step successivi. Non chiamare altre skill. Non generare file.
+Restituisci il controllo all'utente e attendi la sua risposta.
+Riprendere dallo Step 8 solo dopo aver ricevuto le risposte.
 
 ### Step 8 — Incorpora le risposte e scrivi il JSON
 
-Eseguito **solo dopo che l'utente ha confermato** (con o senza correzioni).
+Eseguito solo dopo che l'utente ha risposto alle domande bloccanti (se presenti), oppure immediatamente se non ce ne sono.
 
-1. Incorpora nel modello in memoria tutte le correzioni indicate dall'utente (aggiunte, rimozioni, modifiche a singoli requisiti).
-2. Per ogni domanda bloccante a cui l'utente ha risposto: aggiorna `inferenza` da `da_chiarire` a `stimato` o `esplicito`, aggiorna `note_inferenza` con la risposta ricevuta, rimuovi la voce corrispondente da `domande_bloccanti`.
+1. Per ogni domanda a cui l'utente ha risposto: aggiorna `inferenza` da `da_chiarire` a `stimato` o `esplicito`, aggiorna `note_inferenza` con la risposta ricevuta, rimuovi la voce da `domande_bloccanti`.
+2. Per ogni "Non so": mantieni `da_chiarire`, fai l'assunzione più conservativa, documentala in `note_inferenza`.
 3. Verifica che le aree trasversali siano presenti (Step 6).
 4. Scrivi il file `requisiti_estratti.json` con la struttura completa e aggiornata.
-5. Comunica all'utente che il file è pronto e può essere passato a `gara-bid-estimator-v3`.
+5. Comunica all'utente che il file è pronto e può essere passato a `gara-bid-estimator`.
 
 **Non procedere alla stima.** Il file JSON è l'unico output di questa skill.
 
-### Step 8b — Genera il file open_points.xlsx
+### Step 8b — Comunica output
 
-Eseguito subito dopo la scrittura del JSON, senza attendere ulteriore conferma.
-
-Prendi tutte le voci presenti in `domande_bloccanti` del JSON appena scritto e producile come
-file Excel `open_points.xlsx` — da condividere con il cliente per raccogliere le risposte.
-
-Prima di scrivere il file, leggi `/mnt/skills/public/xlsx/SKILL.md` per seguire le istruzioni
-di ambiente. Poi genera il file con openpyxl con questa struttura:
-
-**Foglio: "Open Points"**
-
-| Colonna | Header | Contenuto |
-|---|---|---|
-| A | ID | `Q-001`, `Q-002`, ... |
-| B | Area | `area` della domanda bloccante |
-| C | Riferimento bando | `testo_bando` della domanda bloccante |
-| D | Domanda | `domanda` della domanda bloccante |
-| E | Opzioni | `opzioni` join con newline |
-| F | Impatto stima | `impatto_stima` |
-| G | Risposta cliente | vuota — da compilare dal cliente |
-| H | Stato | `Aperto` (default) |
-
-Formattazione:
-- Riga 1: intestazioni in bold, sfondo grigio chiaro (`D9D9D9`), testo nero, altezza 20px
-- Colonne A-B: larghezza 12
-- Colonna C-D: larghezza 45, wrap text attivo
-- Colonna E-F: larghezza 35, wrap text attivo
-- Colonna G: larghezza 40, sfondo giallo chiaro (`FFFDE7`) — evidenzia che va compilata
-- Colonna H: larghezza 12
-- Righe dati: altezza minima 40px, bordi sottili su tutte le celle
-- Freeze della riga 1 (intestazioni sempre visibili)
-
-Dopo aver scritto `open_points.xlsx`, comunica all'utente:
-- `requisiti_estratti.json` → da passare a `gara-bid-estimator-v3` per la stima
-- `open_points.xlsx` → da inviare al cliente per raccogliere le risposte alle domande bloccanti
+Dopo aver scritto `requisiti_estratti.json`, comunica all'utente:
+- `requisiti_estratti.json` → da passare a `gara-bid-estimator` per la stima
+- Le domande bloccanti (se presenti) verranno inserite nel foglio `QA Open Points` del template Excel dal bid-estimator, insieme alle domande strategiche dell'rfp_analysis.json. Non generare un file open_points.xlsx separato.
 
 ## Tracciabilità — regole obbligatorie
 
@@ -401,7 +381,7 @@ Per ogni requisito estratto devi documentare fonte e certezza, sia nel JSON che 
 
 **Nell'Excel** (colonne M e N del foglio Requirements):
 - Colonna M `Fonte / Pag.`: inserisci pagina, sezione e max 15 parole del testo originale
-- Colonna N `Certezza`: inserisci `🟢` per estratto, `🟡` per inferito, `🔴` per assunto
+- Colonna N `Certezza`: inserisci `E` per estratto (sfondo verde), `I` per inferito (sfondo giallo), `A` per assunto (sfondo rosso)
 
 **Audit Trail** — aggiungi una riga nel foglio `Audit Trail` per ogni:
 - Requisito padre creato per aggregazione (campo `decomposizione`)
@@ -412,9 +392,24 @@ Per ogni riga dell'Audit Trail: ID progressivo (`AT-REQ-NNN`), foglio = `Require
 
 ## Regole operative
 
+**Principio — human in the loop solo per domande bloccanti**: il flusso procede in autonomia senza interruzioni tra gli step. L'unica interruzione consentita è al termine dell'estrazione, se esistono domande bloccanti che soddisfano i criteri sotto.
+
+**Criteri per una domanda bloccante valida** (almeno una condizione deve essere vera):
+- Un requisito è potenzialmente fuori scope ma il documento è contraddittorio — senza chiarimento non è possibile decidere se estrarlo o escluderlo
+- Manca un'informazione strutturale che cambia radicalmente il numero o il tipo di requisiti da estrarre: es. "il sistema deve gestire 10 utenti o 10 milioni?" determina se esistono requisiti di scalabilità/performance; "l'integrazione X è da realizzare o è già esistente e da riusare?" determina se va estratto un requisito di integrazione
+- Un'integrazione o un modulo è citato nel documento ma non è chiaro se è in scope oppure è un sistema esterno già disponibile
+
+**Vietato in ogni circostanza:**
+- Chiedere preferenze su approccio progettuale (Agile/Waterfall, durata, team)
+- Proporre scenari alternativi di scope
+- Fare domande sulla stima (i GG/U non esistono ancora in questa fase)
+- Interrompere tra uno step e l'altro
+- Presentare "prossimi passi" chiedendo se continuare
+
+
 - **Decomponi prima di classificare**: applica sempre il decision tree prima di assegnare l'area funzionale.
 - **Non stimare GG/U**: nessun valore numerico di effort nel JSON. Solo struttura e classificazione.
-- **Non scrivere il JSON prima della conferma**: il file `requisiti_estratti.json` viene scritto solo allo Step 8, dopo che l'utente ha confermato la tabella e risposto alle domande bloccanti. La tabella Markdown è l'output intermedio.
+- **Scrivi il JSON subito dopo la tabella riepilogativa** se non ci sono domande bloccanti. Se ci sono domande bloccanti, il JSON viene scritto solo dopo aver ricevuto le risposte dall'utente.
 - **Ogni `da_chiarire` deve avere una voce in `domande_bloccanti`** o almeno una nota in `note_inferenza`.
 - **Ogni `stimato` deve avere una `note_inferenza`** che spiega il ragionamento.
 - **Non creare padri speculativi**: il padre esiste solo se i figli sono determinati con certezza (espliciti o da fallback).
@@ -427,4 +422,4 @@ Per ogni riga dell'Audit Trail: ID progressivo (`AT-REQ-NNN`), foglio = `Require
 - Per classificare un requisito in area funzionale: `references/aree_funzionali.md`
 - Per esempi pratici di mapping e decomposizione: `references/esempi_mapping.md`
 - Per verificare stato EOL/LTS di versioni tecnologiche (Step 1b): `references/eol_lts.md`
-- Per generare il file Excel open_points (Step 8b): `/mnt/skills/public/xlsx/SKILL.md`
+
