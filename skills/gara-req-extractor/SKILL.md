@@ -7,7 +7,7 @@ description: >
   il file caricato ha estensione `.ppt` o `.pptx` (presentazione PowerPoint).
   OUTPUT: tabella Markdown riepilogativa per validazione umana, poi file JSON `requisiti_estratti.json` scritto solo dopo conferma utente.
   SKIP se il documento è un contratto esecutivo, verbale, fattura, collaudo o documento privo di requisiti stimabili.
-  SEQUENZA: questa skill va eseguita PRIMA di gara-bid-estimator-v3. Non stimare GG/U — fermarsi al JSON.
+  SEQUENZA: questa skill va eseguita PRIMA di gara-bid-estimator. Non stimare GG/U — fermarsi al JSON.
 ---
 
 # Gara Req Extractor
