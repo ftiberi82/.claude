@@ -8,6 +8,13 @@ description: >
   OUTPUT: file `rfp_analysis.json` con analisi economica, criteri di aggiudicazione, formato risposta,
   summary scope/stack/architettura, open point QA per il cliente, verifica EOL/LTS stack as-is.
   SEQUENZA: questa skill va eseguita PRIMA di gara-req-extractor e gara-bid-estimator.
+  NON USARE se l'utente vuole il pacchetto operativo per il team che dovrà stimare — cioè un
+  PowerPoint di Executive Summary + un Excel multi-sheet con capability, driver di stima,
+  matrice profili x capability, gap analysis, registro chiarimenti e nota di handoff verso il
+  cost modeling: in quel caso usa `gara-rfp-handoff`. Questa skill (`gara-rfp-analyzer`) si
+  attiva quando l'utente vuole un JSON strategico per costruire la RISPOSTA all'offerta
+  (valore economico, criteri di aggiudicazione, formato risposta atteso, EOL/LTS dello stack
+  as-is, open point QA per il cliente).
   SKIP se il documento è un contratto esecutivo, verbale, fattura, collaudo o documento privo di sezioni
   economiche o di valutazione dell'offerta.
 ---
