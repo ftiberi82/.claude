@@ -83,3 +83,37 @@ Nota: distinto da `Integrazione Sistemi Legacy` che riguarda il consumo di API e
 - Per aree ad alta numerosita non usare una sola riga aggregata quando il bando elenca componenti distinte: integrazioni, schermate/feature frontend, KPI/report, workflow documentali, entita o dataset da migrare.
 - Se il bando elenca sistemi o componenti differenti, considera ciascun elemento come potenziale unita stimabile.
 - Quando possibile usa in colonna B il label esatto gia presente nel template Excel.
+
+## Segnali per `categoria_scope` (schema v2.0) — riconoscere quando NON è custom software
+
+Default: `custom_software`. Cambia solo se uno dei segnali sotto è presente.
+
+### Segnali per `cots_product` (prodotto commerciale già in possesso o da acquistare)
+
+- Bando cita nome esatto di un prodotto SaaS/commerciale: `SAP S/4HANA`, `Salesforce`, `ServiceNow`, `Microsoft 365`, `Dynamics 365`, `Power BI`, `Tableau`, `Qlik`, `Oracle EBS`, `SharePoint`, `Confluence`, `Jira`, `Workday`, `SAS`, `Adobe Experience Manager`.
+- Frasi tipo: `"utilizzo del prodotto X già in possesso"`, `"licenze X fornite dal cliente"`, `"piattaforma X come abilitatore"`, `"configurazione del prodotto X"`.
+- Per area **Cruscotto Analytics**: se il bando cita `Power BI` o `Tableau` come strumento e non un sviluppo custom di BI → `cots_product`. Lo sviluppo di report custom su quei tool resta `custom_software` (consulenza/configurazione).
+- Per area **Gestione Documentale**: se cita `SharePoint`, `Alfresco`, `Documentum`, `OnBase`, `OpenText` come piattaforma da configurare → `cots_product`.
+
+### Segnali per `service_external` (API/servizio di terzi con cui il custom interagisce)
+
+- Bando cita servizi nazionali italiani: `SPID`, `CIE`, `PagoPA`, `ANPR`, `ANAC`, `AgID ModI`, `PDND`, `AppIO`.
+- Bando cita servizi cloud-as-a-service: `Google Maps API`, `Stripe`, `Twilio`, `SendGrid`, `OpenAI API`, `Auth0`, `Okta`, `Azure AD (come IdP esistente)`, `Azure OpenAI`.
+- Per area **Autenticazione & IAM**: se il bando dice `"il sistema deve autenticarsi via SPID/CIE"` o `"integrazione con l'IdP aziendale Azure AD"` → l'autenticazione *come servizio* è `service_external`. La parte di integrazione custom (handler OAuth/SAML lato applicazione) resta `custom_software`, va estratto come riga separata.
+- Per area **Notifiche & Comunicazioni**: se cita `SendGrid`, `Mailgun`, `Twilio` come servizio di delivery → `service_external` (il costo del servizio è out-of-scope custom). Il wrapper applicativo resta `custom_software`.
+- Per area **Pagamenti**: `PagoPA`, `Stripe`, `Nexi` come gateway → `service_external`.
+
+### Segnali per `out_of_scope` (citato ma fuori responsabilità del fornitore)
+
+- Frasi tipo: `"a carico del cliente"`, `"fornito da altro fornitore"`, `"infrastruttura già esistente fuori scope"`, `"hardware fornito dalla SA"`, `"connettività di rete a carico di terzi"`.
+- Per area **Infrastruttura e DevOps**: se il bando dice `"l'infrastruttura cloud AWS è già attiva e configurata, il fornitore eredita gli ambienti"` → l'infrastruttura è `out_of_scope`, il setup CI/CD applicativo resta `custom_software`.
+- Migrazione dati: se il dump è `"fornito dal cliente in formato CSV pronto"` → l'ETL resta `custom_software` ma la *bonifica dati* a monte può essere `out_of_scope`.
+
+### Regola operativa per requisiti ibridi
+
+Molti requisiti combinano servizio esterno + sviluppo custom (es. "autenticazione SPID" = SPID `service_external` + handler applicativo `custom_software`). In questi casi, **dividi in due righe**:
+
+1. Riga 1: `categoria_scope: service_external` con `nome_prodotto: SPID`, GG/U a 0 (sarà filtrato dal bid-estimator nello sheet COTS), descrive la dipendenza esterna.
+2. Riga 2: `categoria_scope: custom_software`, descrive l'integration layer custom (handler SAML, callback URL, gestione sessione) → stimabile in GG/U.
+
+Annota la coppia nel campo `rationale_requisito` di entrambe le righe (es. "Coppia con REQ-NNN per integration layer custom").

@@ -37,11 +37,16 @@ ws_ar  = wb['Assumptions & Risks']
 ```
 
 **Struttura del template da rispettare:**
-- Foglio `RFP Analysis`: dati strategici estratti da `rfp_analysis.json` — compilare le 5 sezioni (valore economico, criteri aggiudicazione, formato risposta, summary tecnico, stack as-is EOL)
+- Foglio `RFP Analysis`: dati strategici estratti da `rfp_analysis.json` — compilare le 5 sezioni (valore economico, criteri aggiudicazione, formato risposta, summary tecnico, stack as-is EOL). Se l'rfp_analysis ha `requisiti_non_funzionali` non vuoto, compilare anche la sezione NFR (vedi Step dedicato).
 - Foglio `QA Open Points`: domande aperte al cliente estratte da `rfp_analysis.open_points_qa` e `domande_bloccanti` del JSON requisiti — colonna "Risposta cliente" in giallo da compilare
-- Foglio `Requirements & Solution Mapping`: righe intestazione 1-3, righe dati REQ-001→REQ-016 dalla riga 4 alla riga 19, riga vuota 20, riga TOTALE alla riga 21
-- Foglio `Summary`: contiene dati di progetto (righe 5-12, incluse data sottomissione domande riga 11 e data consegna offerta riga 12), riepilogo economico e formula `Build` in `B18` che punta a `='Requirements & Solution Mapping'!J21` — non alterarla. Riga TOTALE in riga 26, Contingency in D27, Totale con contingency in D28, Revenue in D29
+- Foglio `Requirements & Solution Mapping`: righe intestazione 1-3, righe dati REQ-001→REQ-016 dalla riga 4 alla riga 19, riga vuota 20, riga TOTALE alla riga 21. Colonne A-N storiche + **O = "Forbice & Driver"** (bullet list multi-riga) + **P = "Rationale Stima"** (testo libero) introdotte con schema v2.0.
+- Foglio `Summary`: contiene dati di progetto (righe 5-12, incluse data sottomissione domande riga 11 e data consegna offerta riga 12), riepilogo economico e formula `Build` in `B18` che punta a `='Requirements & Solution Mapping'!J21` — non alterarla. Riga TOTALE in riga 26, Contingency in D27, Totale con contingency in D28, Revenue in D29. Riga aggiuntiva **"Costi prodotti/servizi esterni"** sotto Build, alimentata da `='Prodotti & Servizi Esterni'!F{totale}`.
+- Foglio `Prodotti & Servizi Esterni` (nuovo, schema v2.0): elenco delle righe con `categoria_scope != custom_software`. Colonne A=REQ ID, B=Categoria, C=Nome prodotto, D=Fornitore, E=Tipo costo, F=Stima costo (€) [vuota — input umano in fase commerciale], G=Note, H=Fonte bando, I=Motivazione classificazione. Footer con somma colonna F.
 - Foglio `Assumptions & Risks`: sezione A (assunzioni) e sezione B (rischi) già strutturate — aggiungi righe in coda a ciascuna sezione
+
+**Compatibilità schema:**
+- JSON `requisiti_estratti.json` con `versione_schema: "2.0"` → compila colonne O/P, popola sheet "Prodotti & Servizi Esterni"
+- JSON con `versione_schema: "1.0"` (o assente) → lascia colonne O/P vuote con nota in audit trail, sheet "Prodotti & Servizi Esterni" resta vuoto. Segnala all'utente: `"⚠️ JSON in schema v1.0 — i nuovi campi rationale, forbice driver e categoria_scope non sono disponibili. Per beneficiare della tracciabilità estesa, rieseguire gara-req-extractor."`
 
 **Regola critica**: non ricreare mai il file da zero. Parti sempre dal template caricato, scrivi solo nelle celle dati e aggiungi righe dove necessario. Font, colori, bordi, formule di aggregazione esistenti devono essere preservati esattamente.
 
@@ -168,10 +173,21 @@ Segui rigorosamente la struttura del template Excel.
 - **Colonna D** — scrivi direttamente il testo del campo `soluzione_proposta` del requisito. Non scrivere il nome del campo, non scrivere riferimenti al JSON, non scrivere formule. Esempio: se `soluzione_proposta` vale "Implementare form di login con validazione lato client e autenticazione OAuth2", scrivi esattamente quel testo nella cella.
 - **Colonna E** — Componente tecnica
 - **Colonna F** — Complessità (`Alta`, `Media`, `Bassa`); per i padri: `—`
-- **Colonne G/H/I** — GG/U per FE, BE, Data inseriti come **valori interi** (questi sono gli input stimati); per i padri: `0`
+- **Colonne G/H/I** — GG/U per FE, BE, Data inseriti come **valori interi** (questi sono gli input stimati); per i padri: `0`. **Per requisiti con `categoria_scope != custom_software` (schema v2.0): G=H=I=0** (la stima va nello sheet "Prodotti & Servizi Esterni" come costo €, non come GG/U).
 - **Colonna J** — Totale GG/U: la formula `=IFERROR(SUM(G{n}:I{n}),0)` è già presente nel template per ogni riga. **Non sovrascriverla mai** — scrivi solo i valori interi nelle colonne G, H, I e lascia che la colonna J si calcoli da sola. Per i padri: inserisci `0` nelle colonne G, H, I.
 - **Colonna K** — scrivi la priorità tradotta in italiano: `must_have → Must Have`, `should_have → Should Have`, `nice_to_have → Nice to Have`
 - **Colonna L** — scrivi il testo dei campi `inferenza` e `note_inferenza` separati da spazio. Per i requisiti padre scrivi: `Macro-requisito — GG/U stimati nei sub-requisiti figli`. Non scrivere i nomi dei campi.
+- **Colonna O — "Forbice & Driver"** (schema v2.0): bullet list multi-riga nella stessa cella. Wrap text attivo, larghezza colonna ~60. Formato:
+  ```
+  • Forbice area: 9-16 GG/U (Media)
+  • Posizione scelta: Bordo alto (15 GG/U)
+  • Driver di crescita applicati:
+    – SLA <2s p95 (correttivo +20%)
+    – Integrazione legacy senza doc API
+  • Driver di riduzione: nessuno
+  ```
+  Componi la cella combinando: (1) forbice min-max dell'area da `references/regole_stima.md`, (2) posizione scelta (`Bordo basso` se totale = limite inferiore o entro 10% del minimo; `Centro` se entro ±15% del default; `Bordo alto` se totale = limite superiore o entro 10% del massimo; `Oltre alto` se sopra il massimo del range), (3) driver applicati estratti dai correttivi di `references/segnali_complessita.md` decisi nello Step 2. Per requisiti con `categoria_scope != custom_software`: cella riporta solo `• Out-of-scope custom software (categoria: {valore})`. Per `tipo: padre`: cella vuota.
+- **Colonna P — "Rationale Stima"** (schema v2.0): testo libero 1-3 righe che spiega il perché del GG/U finale. Combina `rationale_soluzione` (dal JSON) + ragionamento sulla complessità + correttivi applicati. Esempio: `"Componenti FE+BE standard con OAuth2 PKCE (rationale_soluzione); complessità Media perché driver SLA stringente posiziona al bordo alto del range, no driver di riduzione."`. Per `tipo: padre`: cella vuota.
 
 **Regola formule obbligatoria**: nel foglio Requirements, la riga 21 (TOTALE) contiene già le formule `=SUM(G4:G20)`, `=SUM(H4:H20)`, `=SUM(I4:I20)`, `=SUM(J4:J20)` — non sovrascriverle con valori calcolati in Python. Nel foglio Summary, tutte le celle di riepilogo economico (Design, Test, Deploy, PMO, Infrastruttura) sono già derivate da `B16` tramite percentuali fisse hardcoded nel template (`B15=B16*25%`, `B17=B16*25%`, `B18=B16*3%`, `B19=B16*10%`, `B20=B16*60%`) — non alterarle. Scrivi solo i valori interi nelle colonne G, H, I del foglio Requirements e i metadati di progetto nel foglio Summary.
 
@@ -189,6 +205,33 @@ Per ogni voce in `domande_bloccanti` del JSON, crea una voce nel foglio Risks:
 > `R-NNN: [domanda bloccante] — impatto: [impatto_stima]`
 
 Mantieni gli ID nel formato `A-001`, `R-001`.
+
+### Step 7b — Popola il foglio "Prodotti & Servizi Esterni" (schema v2.0)
+
+**Eseguire solo se** il JSON è in `versione_schema: "2.0"` e contiene almeno un requisito con
+`categoria_scope != custom_software`. Altrimenti lascia il foglio vuoto (intestazioni preservate).
+
+Per ogni requisito con `categoria_scope ∈ {cots_product, service_external, out_of_scope}` aggiungi
+una riga nel foglio "Prodotti & Servizi Esterni":
+
+| Colonna | Contenuto | Sorgente |
+|---|---|---|
+| A — REQ ID | `REQ-NNN` o `REQ-NNN.M` | `requisito.id` |
+| B — Categoria | `COTS Product` / `Service External` / `Out of Scope` (label leggibile) | `requisito.categoria_scope` |
+| C — Nome prodotto | es. `SAP S/4HANA`, `SPID`, `Azure AD` | `scope_dettaglio.nome_prodotto` |
+| D — Fornitore | es. `SAP`, `AgID`, `Microsoft` | `scope_dettaglio.fornitore` (vuoto se null) |
+| E — Tipo costo | `Licenza` / `Abbonamento` / `Servizio consulenza` / `Infrastruttura cloud` / `—` | `scope_dettaglio.tipo_costo` mappato in italiano |
+| F — Stima costo (€) | **Lasciare vuota** — input commerciale a valle | n/a |
+| G — Note | sintesi `testo_bando` del requisito (max 30 parole) | `requisito.testo_bando` |
+| H — Fonte bando | pagina/sezione del bando | `requisito.fonte_pag` |
+| I — Motivazione classificazione | perché è stato classificato così | `scope_dettaglio.motivazione` |
+
+**Footer**: aggiungi una riga "TOTALE" sotto l'ultima riga dati con formula `=SUM(F{first}:F{last})` in colonna F. Tutte le altre celle del footer vuote o con label "TOTALE" in colonna E.
+
+**Coordinamento con Requirements**: le righe dei requisiti `categoria_scope != custom_software`
+restano ANCHE nel foglio Requirements con G=H=I=0, colonna O = `"• Out-of-scope custom software (categoria: ...)"`, colonna P = `"Vedi sheet 'Prodotti & Servizi Esterni' — costo non in GG/U custom"`. Questo serve per la tracciabilità completa di tutti i requisiti estratti dal bando.
+
+**Audit Trail**: aggiungi una riga `AT-EST-NNN` per ogni requisito spostato nello sheet COTS, con `decisione: "spostato in Prodotti & Servizi Esterni"`, `ragionamento: motivazione dello scope`.
 
 ### Step 8 — Compila il foglio Summary
 
@@ -220,6 +263,7 @@ Trasferisci i dati dal JSON al foglio — le celle in azzurro sono le destinazio
 - Sezione 3 (Formato risposta): compila ogni riga da `formato_risposta`
 - Sezione 4 (Summary tecnico): compila da `summary_tecnico` — scope applicativo, tipo progetto, architettura, stack richiesto/preferito, integrazioni, utenti
 - Sezione 5 (Stack as-is EOL): compila da `stack_asis.componenti` se `applicable: true`; inserisci `sintesi_rischio` nell'ultima riga rossa
+- Sezione 6 (Requisiti Non Funzionali — schema rfp_analysis aggiornato): se `rfp_analysis.requisiti_non_funzionali` è presente e non vuoto, compila una riga per ogni item NFR su tutte le 8 categorie (`prestazioni`, `sla`, `sicurezza`, `compliance`, `accessibilita`, `scalabilita`, `disponibilita`, `manutenibilita`). Per ogni riga: categoria, descrizione, valore_target, impatto_stima, fonte. Se il template non ha ancora una Sezione 6, aggiungila in coda al foglio "RFP Analysis" mantenendo lo stile delle altre sezioni; oppure annota in audit trail che la sezione NFR è in attesa di aggiornamento del template.
 
 ### Compila il foglio QA Open Points
 

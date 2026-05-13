@@ -67,6 +67,7 @@ Produce `rfp_analysis.json` con questa struttura:
   "formato_risposta": { ... },
   "summary_tecnico": { ... },
   "stack_asis": { ... },
+  "requisiti_non_funzionali": { ... },
   "open_points_qa": [ ... ]
 }
 ```
@@ -195,6 +196,46 @@ Criteri di rischio:
 - `medio`: versione in LTS ma con fine supporto entro 18 mesi
 - `basso`: versione in active support o LTS con orizzonte > 18 mesi
 
+### `requisiti_non_funzionali`
+
+Vista strategica anticipata sui requisiti non funzionali (NFR) — utile per pricing, go/no-go e per pre-popolare le aree trasversali di `gara-req-extractor`.
+
+Otto categorie standard, ognuna è una lista di item (può essere vuota se non emergono requisiti pertinenti):
+
+```json
+{
+  "prestazioni":    [ /* tempi risposta, throughput, TPS, latenza */ ],
+  "sla":            [ /* uptime %, RTO/RPO, severity & response time, penali */ ],
+  "sicurezza":      [ /* autenticazione, autorizzazione, cifratura, audit log, pentest, VAPT */ ],
+  "compliance":     [ /* GDPR, AgID, CAD, NIS2, ISO 27001, accessibilità AgID, normative settoriali */ ],
+  "accessibilita":  [ /* WCAG 2.1 AA, linee guida AgID, target utenti con disabilità */ ],
+  "scalabilita":    [ /* utenti concorrenti, volumi dati, picchi, crescita attesa */ ],
+  "disponibilita":  [ /* HA, DR, multi-region, business continuity */ ],
+  "manutenibilita": [ /* logging, monitoring, documentazione, code quality, manutenzione evolutiva */ ]
+}
+```
+
+Schema di ogni singolo item:
+
+```json
+{
+  "categoria": "prestazioni | sla | sicurezza | compliance | accessibilita | scalabilita | disponibilita | manutenibilita",
+  "descrizione": "es. tempo di risposta < 2s per il 95% delle richieste sotto carico nominale",
+  "valore_target": "es. '<2s p95' | '99,9%' | 'WCAG 2.1 AA' | null se non quantificato",
+  "fonte_pag": "pag. X, Sez. Y",
+  "fonte_estratto": "max 20 parole testo originale",
+  "certezza": "estratto | inferito | assunto",
+  "impatto_stima": "alto | medio | basso"
+}
+```
+
+**`impatto_stima`** è un hint per `gara-req-extractor` e `gara-bid-estimator`:
+- `alto`: NFR che richiede componenti/architettura dedicati (es. HA multi-region, SLA <2s p95 con volumi alti, pentest formale) → tipicamente alza la complessità delle aree trasversali a Media/Alta
+- `medio`: NFR standard ma non banale (es. WCAG AA, GDPR base, monitoring) → manda a Media le aree trasversali
+- `basso`: NFR di compliance standard senza vincoli particolari (es. logging applicativo, backup giornaliero) → resta al floor minimo
+
+**Regola di compilazione:** una categoria può restare lista vuota (`[]`) se il documento non cita requisiti pertinenti. Non riempire con item generici di default. Se il documento è solo commerciale (no specs tecniche), tutte le categorie possono restare vuote — la sezione è comunque presente nello schema.
+
 ### `open_points_qa`
 
 Domande strategiche da fare al cliente **prima** di costruire l'offerta — distinte dalle domande
@@ -266,7 +307,49 @@ as-is citate nel documento. Per ciascuna, verifica stato EOL/LTS come descritto 
 Produci `sintesi_rischio` con un giudizio complessivo (es. "Stack ad alto rischio: Java 8 EOL
 e Angular 11 EOL richiedono upgrade obbligatorio prima o contestualmente al nuovo sviluppo.").
 
-### Step 7 — Compila `open_points_qa`
+### Step 7 — Compila `requisiti_non_funzionali`
+
+Estrai dal documento i requisiti non funzionali e classificali nelle 8 categorie standard.
+Fonti tipiche: sezione "Requisiti tecnico-operativi", "Requisiti non funzionali", "Livelli di
+servizio", "Sicurezza", allegato SLA, allegato accessibilità.
+
+Per ogni NFR identificato:
+
+1. Determina la categoria (`prestazioni`, `sla`, `sicurezza`, `compliance`, `accessibilita`,
+   `scalabilita`, `disponibilita`, `manutenibilita`). Se un NFR ricade in più categorie, scegli
+   quella prevalente e cita la secondaria in `descrizione`.
+2. Estrai `valore_target` quantitativo se presente (es. "99,9%", "<2s p95", "WCAG 2.1 AA"). Se il
+   bando cita solo principio ("buona performance") senza numero, lascia `null`.
+3. Compila `fonte_pag`, `fonte_estratto`, `certezza` come per le altre sezioni.
+4. Assegna `impatto_stima` secondo la regola della sezione schema:
+   - `alto` → richiede componenti/architettura dedicati (HA multi-region, SLA stringenti con volumi
+     alti, pentest formale, certificazioni ISO/SOC)
+   - `medio` → NFR standard ma non banale (WCAG AA, GDPR base, monitoring strutturato)
+   - `basso` → compliance standard senza vincoli particolari
+
+**Mapping di default categoria → segnali nel bando** (per orientare l'estrazione):
+
+| Categoria | Segnali tipici |
+|---|---|
+| `prestazioni` | "tempo di risposta", "throughput", "TPS", "carico nominale", "latenza" |
+| `sla` | "uptime %", "RTO", "RPO", "severity", "tempo di risposta a ticket", "penali" |
+| `sicurezza` | "OWASP", "VAPT", "pentest", "cifratura", "MFA", "audit log", "RBAC" |
+| `compliance` | "GDPR", "AgID", "CAD", "NIS2", "ISO 27001", "DPIA", normative settoriali |
+| `accessibilita` | "WCAG", "accessibilità", "AgID accessibilità", "screen reader" |
+| `scalabilita` | "utenti concorrenti", "milioni di transazioni", "picchi", "scalabilità orizzontale" |
+| `disponibilita` | "HA", "alta affidabilità", "DR", "disaster recovery", "business continuity", "multi-region" |
+| `manutenibilita` | "logging", "monitoring", "documentazione", "manutenzione evolutiva", "code quality" |
+
+**Regola di completezza**: tutte e 8 le categorie devono apparire nel JSON (anche come lista vuota
+`[]`). Non omettere chiavi anche se non emergono requisiti — la struttura uniforme è necessaria a
+valle per `gara-req-extractor`.
+
+**Documentazione downstream**: questa sezione è input opzionale ma raccomandato per `gara-req-extractor`.
+Lo Step di lettura NFR in `gara-req-extractor` userà `requisiti_non_funzionali` per pre-popolare le
+aree trasversali (Sicurezza e Compliance, Infrastruttura e DevOps, Accessibilità, PMO e Governance)
+evitando duplicazioni.
+
+### Step 8 — Compila `open_points_qa`
 
 Identifica le lacune informative che impattano la costruzione dell'offerta — non i requisiti funzionali
 (quelli li gestirà `gara-req-extractor`), ma le condizioni quadro:
@@ -278,7 +361,7 @@ Identifica le lacune informative che impattano la costruzione dell'offerta — n
 
 Ordina per impatto (alto prima) e limita a 10 voci massimo.
 
-### Step 8 — Scrivi il JSON e presenta il riepilogo
+### Step 9 — Scrivi il JSON e presenta il riepilogo
 
 Scrivi immediatamente `rfp_analysis.json` senza attendere conferma. Poi presenta all'utente un riepilogo sintetico in Markdown:
 
@@ -291,6 +374,8 @@ Scrivi immediatamente `rfp_analysis.json` senza attendere conferma. Poi presenta
 > **Formato risposta:** [componenti richieste] | **Modalità prezzi:** [fixed/T&M/tariffa]
 >
 > **Stack as-is:** [sintesi rischio EOL/LTS o "N/A — nuovo sviluppo"]
+>
+> **NFR rilevanti:** [N requisiti non funzionali estratti — categorie con impatto alto: ...]
 >
 > **Open point QA:** [N domande da fare al cliente — vedi `open_points_qa` nel JSON]
 >
