@@ -47,12 +47,17 @@ conferma. Non introdurre ipotesi senza dichiararle. Se un dato è assente o ambi
 classificalo come "assunzione operativa" e documenta valore, razionale, impatto. Non usare
 benchmark di settore senza indicarne la fonte e chiedere validazione.
 
-## Posizionamento nel processo (3 fasi)
+## Posizionamento nel processo (4 step)
 
 ```
 Fase 1 — Valutazione caratteristiche commerciali e tecniche
    └─ skill: gara-rfp-handoff
    └─ output: rfp_handoff.xlsx (10 sheet operativi + _Esempi)
+
+Step 2 — Brainstorming delivery/bid (primo deliverable executive)
+   └─ skill: gara-rfp-deck
+   └─ output: executive_summary.pptx (10 slide pre-formattate)
+   └─ utilizzato per allineamento interno PRIMA dei chiarimenti al cliente
 
 Fase 2 — Aggiornamento post-chiarimenti (MANUALE)
    └─ il bid manager invia le domande Sheet 9 al cliente
@@ -65,9 +70,9 @@ Fase 3 — Stima Effort & Cost Model  ◄── QUESTA SKILL
    └─ output: [nome_gara]_CostModel_v1.xlsx (4 sheet)
 ```
 
-**Skill ausiliaria nello stesso processo**: `gara-rfp-deck` produce un deck Executive
-Summary in PowerPoint a partire dall'Excel handoff. È invocata manualmente, indipendente
-da questa skill.
+**`gara-rfp-deck` è Step 2 del processo**, non skill ausiliaria. Va invocata
+immediatamente dopo `gara-rfp-handoff` (Fase 1) per produrre il deck di brainstorming
+delivery/bid prima della Fase 2 manuale dei chiarimenti.
 
 ## Distinzione vs `gara-bid-estimator`
 

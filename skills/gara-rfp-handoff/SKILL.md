@@ -12,9 +12,10 @@ description: >
   chiarimento al cliente, il registro chiarimenti o la nota di handoff verso il cost modeling.
   OUTPUT: file `rfp_handoff.xlsx` ottenuto copiando e popolando il template
   `assets/template_rfp_handoff.xlsx` mantenendo intestazioni, struttura, formattazione e
-  data validation predefinite. Questa skill NON genera deck PowerPoint: se l'utente vuole
-  un Executive Summary in formato slide, deve invocare separatamente `gara-rfp-deck`
-  passandole come input l'`rfp_handoff.xlsx` prodotto.
+  data validation predefinite. Questa skill NON genera deck PowerPoint: lo step
+  IMMEDIATAMENTE SUCCESSIVO è invocare `gara-rfp-deck` passandole l'`rfp_handoff.xlsx`
+  prodotto per generare l'Executive Summary PPTX (10 slide), primo deliverable di
+  brainstorming delivery/bid PRIMA dei chiarimenti al cliente.
   COMPORTAMENTO INTERATTIVO OBBLIGATORIO: prima di popolare il template la skill elenca
   esplicitamente in chat tutte le scelte interpretative (estratto / inferito / assunto) e si
   ferma in attesa di approvazione. Le assunzioni richiedono conferma esplicita prima di
@@ -215,6 +216,20 @@ Colonne: `Livello` (drop-down L1/L2/L3), `Codice`, `Capability / Attività`, `Ti
 `Note`. L'indentazione visiva nel campo `Capability / Attività` rispecchia il livello
 (L1 = nessun rientro, L2 = 2 spazi, L3 = 6 spazi).
 
+**Regola tracciabilità colonna E `Profili Coinvolti` (OBBLIGATORIA):** ogni profilo
+elencato deve essere classificato come **estratto dal documento** o **ipotizzato** (con
+rationale esplicito). Usare tag inline:
+
+- **Profili estratti** — citare la fonte tra parentesi quadre: `TL, TechL, AP, Prog [DOC: Cap. §3.1 + Allegato 1]`. Mantenere il riferimento puntuale (sezione/paragrafo/pagina) per ogni gruppo di profili.
+- **Profili ipotizzati** — prefisso `[IPOTIZZATO]` + lista profili + `| rationale:` + motivazione breve. Es: `[IPOTIZZATO] DBA Oracle, DevOps Engineer | rationale: stack Oracle/Docker citato in §2.1 e Allegato 2 ma profili non assegnati esplicitamente alla capability`.
+- **Misti** (alcuni estratti + alcuni ipotizzati) — separare con `+`: `TL, AP [DOC: §3.1] + [IPOTIZZATO] Cloud Architect | rationale: stack Azure citato in §2.5 senza profilo dedicato`.
+- **Cella vuota** = "Nessun profilo associabile né per estrazione né per inferenza ragionevole" (raro; tipicamente capability decorative come START-UP). NON lasciare vuoto se c'è anche un solo profilo ipotizzabile con rationale.
+
+**Why**: la trasparenza sulla provenienza dei profili è critica per il cost modeler in
+Fase 3 — un profilo ipotizzato richiede validazione con il cliente o assunzione formale
+nel Risk Register; un profilo estratto è già parte del contratto. Senza distinzione esplicita
+il cost modeler rischia di trattare gli ipotizzati come dati certi.
+
 ### `3. Driver di Stima`
 Colonne: `Capability (L2)`, `Driver Disponibile da RFP`, `Valore / Riferimento RFP`,
 `Driver Mancante / Gap`, `Impatto sulla Stima` (drop-down ALTO/MEDIO/BASSO),
@@ -266,38 +281,62 @@ RAI: START-UP, MAC, REP, GES, GST, CON, MAV, MEV, PRJ, SPE).
 con le capability L2 effettive** identificate nello sheet 2 per la specifica RFP.
 Sezioni: `SERVIZI A CANONE` (riga 5) e `SERVIZI A RICHIESTA T&M` (riga 23).
 Colonna A = Tipo (drop-down Canone/T&M/Misto). Colonna B = Profilo Professionale. Colonna C =
-N. Risorse / Volume. Colonna D = Fonte (citazione documento). Celle E:N = drop-down `P` / `S`
-(Primario / Supporto), oppure vuote.
-**Cella vuota = "Non esplicitato nel documento"** (legenda riga 4): non riempire per inferenza.
+N. Risorse / Volume. Colonna D = Fonte (citazione documento). Celle E:N = drop-down esteso
+`P-DOC` / `P-IPO` / `S-DOC` / `S-IPO` / vuoto.
 
-**Regola "no profili inventati":** usa SOLO i profili professionali esplicitamente definiti
-nei documenti di gara (tipicamente Allegato "Figure Professionali" del Capitolato).
-NON introdurre profili specialistici come "DBA", "DevOps", "QA Engineer", "Security
-Specialist", "ML Engineer", "Cloud Architect", "Data Engineer" se non sono nominati
-esplicitamente nel documento — il loro perimetro va eventualmente coperto dai profili
-esistenti (es. "Technical Leader BackEnd" copre anche le competenze DevOps/DBA quando
-il documento le elenca tra le sue conoscenze richieste).
-Se il documento richiede skill specifiche (es. "esperienza DBA Oracle senior") senza
-definire un profilo dedicato, registralo come *competenza richiesta* nelle Note del profilo
-applicabile (Sheet 2 colonna H), non creando una nuova riga profilo nello Sheet 7.
+**Tag delle celle E:N (regola tracciabilità OBBLIGATORIA)**:
+- `P-DOC` = Primario, **estratto dal documento**: il capitolato/disciplinare assegna
+  esplicitamente questo profilo a questa capability. Riportare il riferimento puntuale
+  nella colonna D `Fonte` accanto al nome profilo (es. `Capitolato §2.4.2 → REP esplicito BE+FE`).
+- `P-IPO` = Primario, **ipotizzato** in base a inferenza ragionevole (stack tecnologico,
+  prassi di settore, criticità rilevata). **Rationale obbligatorio** nella colonna D
+  `Fonte`: es. `[IPOTIZZATO] stack Oracle/Mongo richiede DBA per GES; Allegato 2 cita
+  competenza DBA ma non profilo dedicato`.
+- `S-DOC` = Supporto, estratto.
+- `S-IPO` = Supporto, ipotizzato + rationale.
+- **Cella vuota** = "Né estratto né ragionevolmente ipotizzabile" (es. profilo SmartTV
+  per capability REP quando il documento limita REP a BE+FE).
 
-**Regola anti-inferenza (con esempio negativo concreto):**
+**Why**: la versione precedente della skill consentiva solo `P/S` esplicite + cella vuota,
+con il risultato di matrici molto sparse che sottostimavano la copertura reale. L'estensione
+`-DOC` / `-IPO` permette di registrare anche le inferenze ragionevoli (utili al cost modeler
+per pianificare lo skill mix) mantenendole tracciabili e distinguibili dai dati estratti.
 
-❌ **NON FARE COSÌ** — assegnare P per "logica" o "ovvietà":
-> Profilo `Programmatore BE` (6 risorse) e capability `MAC` (Manutenzione Correttiva).
-> Il Capitolato NON dice "il Programmatore BE fa MAC". Dice solo che il presidio MAC è
-> composto da N risorse miste. La cella `MAC × Programmatore BE` deve restare VUOTA.
-> Non scrivere `P` anche se logicamente ti sembra evidente che farà MAC.
+**Regola "profili inventati ammessi solo con tag IPOTIZZATO":** i profili specialistici
+non documentati nell'Allegato "Figure Professionali" (DBA, DevOps, QA Engineer, Security
+Specialist, ML Engineer, Cloud Architect, Data Engineer, ecc.) possono essere aggiunti
+come **righe del Sheet 7 SOLO con tag `P-IPO` / `S-IPO`** e rationale esplicito in col D.
+Es: profilo `DBA Oracle` aggiunto perché stack Oracle è centrale ma capitolato non assegna
+profilo dedicato → riga con `P-IPO` su capability GES, col D = `[IPOTIZZATO] stack Oracle
+in Allegato 2; coperto in pratica da TechL BE ma profilo dedicato realistico per gare
+multimedia con DB intensivo`.
 
-✅ **FAI COSÌ** — assegnare P SOLO se il documento è esplicito:
+Se il documento richiede skill specifiche (es. "esperienza DBA Oracle senior") **e**
+indica anche un profilo che copre quella skill, allora la skill va nelle Note del profilo
+documentato (col H Sheet 2) — NON creare un profilo ipotizzato duplicato.
+
+**Regola di classificazione P-DOC vs P-IPO (con esempi):**
+
+✅ **`P-DOC` — assegnazione esplicita nel documento**:
 > Capitolato §2.4.2 (REP – Reperibilità): *"il servizio dovrà garantire intervento sia in
-> ambito Back-end, sia in ambito Front-end"* → questa è un'assegnazione esplicita →
-> metti `P` nella colonna `REP` SOLO per i profili Back-end e Front-end (TL, TechL, AP,
-> Prog di entrambi gli ambiti). Tutti gli altri profili (Mobile, SmartTV) → cella vuota.
+> ambito Back-end, sia in ambito Front-end"* → `P-DOC` nella colonna `REP` per profili
+> BE+FE (TL, TechL, AP, Prog di entrambi gli ambiti) con col D = `Capitolato §2.4.2`.
+> Tutti gli altri profili (Mobile, SmartTV) → cella vuota.
+
+✅ **`P-IPO` — inferenza ragionevole con rationale**:
+> Profilo `Programmatore BE` (6 risorse) e capability `MAC` (Manutenzione Correttiva).
+> Il Capitolato non assegna esplicitamente, ma indica che il presidio MAC è composto
+> da N risorse miste BE/FE/Mobile/SmartTV → `P-IPO` con col D = `[IPOTIZZATO] presidio
+> MAC esplicitamente miste profili, ragionevole che Programmatore BE copra ticket MAC
+> ambito BE per le ~45% applicazioni del parco`.
+>
+> Differenza chiave dalla versione precedente: prima questa cella sarebbe rimasta
+> VUOTA per regola strict-anti-inferenza. Ora viene popolata con `P-IPO` + rationale,
+> dando al cost modeler informazione utile per lo skill mix.
 
 ✅ **Servizi a Richiesta (T&M)**: se il documento elenca i 4 profili T&M (Architect, TL,
-AP, Prog) come unici profili abilitati a coprire MAV/MEV/PRJ/SPE, allora `P` su tutte le
-4 capability T&M per ognuno dei 4 profili è un'assegnazione esplicita (non inferenza).
+AP, Prog) come unici profili abilitati a coprire MAV/MEV/PRJ/SPE, allora `P-DOC` su tutte
+le 4 capability T&M per ognuno dei 4 profili è un'assegnazione esplicita.
 
 ### `8. Input Cost Model` — parametri per il cost modeler
 Layout a 3 sezioni codificate per colore:
@@ -399,26 +438,98 @@ operativo, con il commento del caso esemplificato. Leggilo PRIMA di compilare og
 
 ## Granularità minima per sheet
 
-Una RFP enterprise tipica genera un workbook ricco — non sintetico. La skill non è
-considerata completata se il workbook è sotto la soglia minima di numerosità definita qui.
+> **IMPORTANTE — i numeri sotto sono FLOOR, non target.** Una RFP enterprise tipica genera
+> un workbook ricco. Per RFP enterprise (>€5M) è atteso che il workbook si attesti al
+> **130-170% delle soglie sotto**. Un workbook che si attesta al floor è segnale di
+> *under-exploration*: rilanciare con focus su Sheet 3 (driver mancanti), Sheet 4 (gap di
+> tipo "dato assente critico"), Sheet 5 (domande Prio 2/3 contrattuali e di sizing).
+
 **Per RFP > €5M (importo complessivo IVA esclusa)**:
 
-| Sheet | Voci minime | Note |
-|---|---|---|
-| Sheet 2 — Mappatura Capability | ≥30 voci totali, di cui ≥3-5 sotto-attività L3 per ogni L2 quando il documento le descrive | Capability L3 = sotto-attività operative concrete (es. MAC.01 "Diagnosi e isolamento", MAC.02 "Risoluzione bug P1-P2", MAC.03 "Risoluzione bug P3-P4", MAC.04 "Hotfix in emergenza", ecc.) |
-| Sheet 3 — Driver di Stima | ≥4-6 driver per L2 (presenti + mancanti) | Mix di driver disponibili (cell A,B,C) e mancanti (cell D,E,F) |
-| Sheet 4 — Gap Analysis | ≥15 voci totali (mix di ALTA/MEDIA/BASSA) | Una RFP enterprise ha sempre molti gap; meno di 15 indica probabile sottoindagine |
-| Sheet 5 — Domande Chiarimento | ≥20 voci (Prio 1+2+3) | Almeno 5-7 di Prio 1 (critiche/bloccanti) |
-| Sheet 6 — Assunzioni | ≥10 voci con valore numerico provvisorio | Vedi regola "assunzioni quantificate" |
-| Sheet 7 — Matrice Profili | Tutti i profili documentati × tutte le capability T&M (sezione 2) | Sezione Canone: solo P esplicite (può risultare scarsa di P, è OK) |
-| Sheet 8 VERDE | ≥40 voci coprenti tutte le categorie della checklist | Vedi sopra "Checklist categorie VERDI" |
-| Sheet 8 GIALLO | ≥10 voci (costi interni, overhead, volumi storici, pricing, inflazione) | |
-| Sheet 8 ROSSO | ≥3 voci (incoerenze numeriche, terminologiche, dati assenti critici) | Una RFP senza alcun bloccante è altamente sospetta |
-| Sheet 9 — Registro Chiarimenti | = Sheet 5 (1:1) | Stesso numero, ordinato per Bloccante DESC |
-| Sheet 10 — Nota Handoff | ≥10 confermati, ≥6 aperti, ≥3 decision point | Sezioni proporzionate al rischio della RFP |
+| Sheet | Floor minimo | Atteso (1,3-1,7×) | Note |
+|---|---|---|---|
+| Sheet 2 — Mappatura Capability | ≥30 voci, di cui ≥3-5 L3 per L2 | **45-60 voci** | L3 = sotto-attività operative concrete (es. MAC.01 "Diagnosi", MAC.02 "Risoluzione P1-P2", MAC.03 "P3-P4", MAC.04 "Hotfix", MAC.05 "Validazione", MAC.06 "Escalation") |
+| Sheet 3 — Driver di Stima | ≥4-6 driver per L2 | **50-70 driver totali** (con 9 L2) | Vedere "Catalogo driver attesi per capability L2" sotto |
+| Sheet 4 — Gap Analysis | ≥15 voci (mix ALTA/MEDIA/BASSA) | **20-25 voci** | Una RFP enterprise ha sempre molti gap |
+| Sheet 5 — Domande Chiarimento | ≥20 voci (Prio 1+2+3) | **27-35 voci** | Almeno 7-10 di Prio 1 (BLOCCANTI), 8-12 Prio 2 (sizing/operative), 5-8 Prio 3 (contrattuali generali) |
+| Sheet 6 — Assunzioni | ≥10 voci con valore numerico | **14-18 voci** | Vedi regola "assunzioni quantificate" |
+| Sheet 7 — Matrice Profili | Tutti i profili documentati × tutte le capability T&M (sezione 2) | (idem) | Sezione Canone: solo P esplicite (può risultare scarsa di P, è OK) |
+| Sheet 8 VERDE | ≥40 voci coprenti tutte le categorie | **55-70 voci** | Vedi sopra "Checklist categorie VERDI" |
+| Sheet 8 GIALLO | ≥10 voci | **13-18 voci** | Costi interni, overhead, volumi storici, pricing, inflazione |
+| Sheet 8 ROSSO | ≥3 voci | **5-8 voci** | Una RFP senza alcun bloccante è altamente sospetta |
+| Sheet 9 — Registro Chiarimenti | = Sheet 5 (1:1) | (idem) | Stesso numero, ordinato per Bloccante DESC |
+| Sheet 10 — Nota Handoff | ≥10 confermati, ≥6 aperti, ≥3 decision point | **15-20 / 8-12 / 4-6** | Sezioni proporzionate al rischio della RFP |
 
 **Per RFP < €5M:** ridurre proporzionalmente le soglie (×0,6 indicativo), mantenendo
 sempre la copertura completa di tutte le capability L2 (no scope coverage debt).
+
+## Catalogo driver attesi per capability L2 (riferimento estrazione)
+
+Per ogni L2 standard, la skill deve valutare attivamente la presenza/assenza dei
+seguenti driver e registrarli in Sheet 3. **La lista non è esaustiva — è il floor di
+esplorazione**: ogni driver mancante che si scopre durante l'analisi va aggiunto come
+voce della colonna "Driver Mancante / Gap".
+
+### MAC — Manutenzione Correttiva
+**Driver presenti tipici** (estrarre se in documento): priorità P1-P4, SLA accettazione,
+SLA risoluzione, fasce penali, orario copertura, numero applicazioni in perimetro.
+**Driver mancanti tipici** (registrare se assenti): volume storico ticket/anno per priorità,
+MTTR storico, effort medio per priorità (ore/ticket), % first-call resolution vs escalation,
+distribuzione complessità app coinvolte (semplice/media/critica), frequenza hotfix urgenti
+fuori ciclo deploy, % esiti workaround vs risoluzione completa, tool monitoring/APM in uso.
+
+### REP — Reperibilità
+**Presenti**: orari reperibilità, cap eventi speciali, perimetro tecnologico (BE/FE/Mobile/SmartTV).
+**Mancanti**: numero medio chiamate REP/anno per fascia oraria, durata media intervento (ore),
+% chiamate che richiedono escalation a presidio canone diurno, calendario eventi live
+(Sanremo, Mondiali, elezioni), profili dedicati eventi speciali, ore presidio rinforzato/giorno.
+
+### GES — Gestione Applicativi/DB
+**Presenti**: lista esemplificativa attività, fasce dimensione (≤2gg/≤5gg/>5gg), copertura oraria.
+**Mancanti**: volume ticket GES/anno per fascia dimensione, mix tipologie (DB ops, upgrade,
+ad-hoc, deploy, modifiche massive), N. applicazioni per livello complessità gestionale,
+frequenza interventi DB critici (tuning, restore, failover), tool monitoring esistenti,
+N. certificati SSL da gestire + frequenza rotazione, stack DB (Oracle/MongoDB/Elastic).
+
+### GST — Gestione Attività Standard
+**Presenti**: catalogo attività con effort noto (lista soggetta ad aggiornamento RAI).
+**Mancanti**: catalogo concreto con voci/effort/frequenza, volume attività per fascia
+effort/anno, frequenza deploy/rilasci per applicazione (release cadence), stack CI/CD
+in uso (Jenkins/GitLab CI/ArgoCD/altro), modalità di pubblicazione store enterprise.
+
+### CON — Conferimento
+**Presenti**: 3 modalità (presa carico / conferimento / dismissione), esclusioni Variazione.
+**Mancanti**: numero atteso nuove app/anno e dismissioni, dimensione media app in
+conferimento (righe codice, API, DB), N. dismissioni previste nel periodo
+contrattuale, effort onboarding per app, calendario previsto presa in carico.
+
+### MAV — Manutenzione Adeguativa
+**Presenti**: 4 profili T&M con tariffe, volumi GG/U Disciplinare.
+**Mancanti**: backlog MAV stimato (N. richieste + effort medio), distribuzione MAV
+per dominio tecnologico (BE/FE/Mobile/TV/CMS), frequenza aggiornamenti normativi
+attesi (ePrivacy, accessibilità), roadmap tecnologica cliente N+1, N+2 (upgrade
+pianificati Java, framework, librerie).
+
+### MEV — Manutenzione Evolutiva
+**Presenti**: processo Pacchetto di Lavoro, SLA stima/accettazione, stack tecnologico,
+app strategiche evidenziate.
+**Mancanti**: backlog MEV per applicazione (N. richieste/anno + effort stimato),
+distribuzione MEV per dominio (BE/FE/Mobile/SmartTV/CMS) in %, dimensione media MEV
+(GG/U per richiesta) con distribuzione small/medium/large, frequenza richieste urgenti
+vs pianificate, governance MEV (chi approva), tool tracciamento (JIRA/Confluence/Azure DevOps).
+
+### PRJ — Progetto (nuovo sviluppo)
+**Presenti**: tariffe profili, processo RDE (Richiesta Esecuzione).
+**Mancanti**: pipeline progetti prossimi 12-18 mesi (N., natura, complessità, dimensione
+media GG/U), durata media progetto (mesi, N. profili), modalità governance progettuale
+(PMO interno, tool, ruoli approvazione), criteri di accettazione tipici (Definition of
+Done, test coverage, KPI qualità), tariffa attività fuori orario standard (250h/anno).
+
+### SPE — Servizi Specialistici
+**Presenti**: categorie menzionate (Security, AI/ML, Cloud, Data, Performance).
+**Mancanti**: volume richieste specialistiche per categoria/anno, framework interni
+cliente per security assessment, ambito AI/ML (modelli in prod vs sviluppo ex-novo,
+infrastruttura MLOps), profili dedicati ammessi vs coperti dai 4 profili tariffari standard.
 
 ## Workflow
 
@@ -484,20 +595,21 @@ Presenta all'utente un riepilogo Markdown:
 >
 > File prodotto: `rfp_handoff.xlsx`
 >
-> **Prossimo passo:** consegna il file al cost modeler partendo dal sheet `10. Nota di Handoff`.
+> **Prossimo passo immediato:** invoca la skill `gara-rfp-deck` passandole
+> `rfp_handoff.xlsx` per produrre l'Executive Summary PPTX. È il **primo deliverable di
+> brainstorming** che delivery e bid manager usano per allinearsi prima di muovere i
+> chiarimenti al cliente.
 >
-> **Catena del processo (3 fasi):**
+> **Catena del processo (4 step):**
 > - ✅ Fase 1 (questa skill): `rfp_handoff.xlsx` prodotto
+> - ⏭ Step 2 (immediato): invoca `gara-rfp-deck` → `executive_summary.pptx` (10 slide)
+>   come deliverable di brainstorming delivery/bid PRIMA dei chiarimenti
 > - ⏭ Fase 2 (manuale): bid manager invia le domande del Sheet 9 al cliente, riceve
 >   risposte, aggiorna Stato/Sintesi nel Sheet 9, valorizza eventuali parametri
 >   "DA ASSUMERE" del Sheet 8 con i nuovi dati
-> - ⏭ Fase 3: invocare la skill `gara-effort-cost-estimator` passandole
->   `rfp_handoff.xlsx` per produrre il Cost Model commerciale (Stima Effort, Cost Model,
+> - ⏭ Fase 3: invoca `gara-effort-cost-estimator` passandole il workbook handoff
+>   aggiornato per produrre il Cost Model commerciale (Stima Effort, Cost Model,
 >   Sensitivity Pricing, Risk Register)
-
-> Per ottenere un Executive Summary in formato slide a partire dall'`rfp_handoff.xlsx`
-> appena prodotto, l'utente può invocare separatamente la skill `gara-rfp-deck`.
-> Questa skill (`gara-rfp-handoff`) NON genera deck PowerPoint.
 
 ## Tracciabilità
 
@@ -533,7 +645,7 @@ nel sheet `4. Gap Analysis` e replicate nel sheet `8. Input Cost Model` come BLO
   - Prio (Sheet 5/9 col F): `1`, `2`, `3`
   - Rischio (Sheet 6 col G): `ALTO`, `MEDIO`, `BASSO`
   - Tipo (Sheet 7 col A): `Canone`, `T&M`, `Misto`
-  - Assegnazione capability (Sheet 7 col E:N): `P`, `S`, oppure vuoto
+  - Assegnazione capability (Sheet 7 col E:N): `P-DOC` (Primario estratto), `P-IPO` (Primario ipotizzato + rationale in col D), `S-DOC` (Supporto estratto), `S-IPO` (Supporto ipotizzato + rationale), oppure vuoto
   - Stato (Sheet 9 col G): `Non inviato`, `Inviato`, `Risposta ricevuta`
   - Impatto se non risolto (Sheet 9 col J): `ALTO`, `MEDIO`, `BASSO`
   - Bloccante per stima (Sheet 9 col K): `SI`, `NO`
@@ -585,6 +697,15 @@ Checklist di validazione (esegui in ordine, ferma all'errore):
 
 8. **Assunzioni quantificate**: le assunzioni di volume nello Sheet 6 hanno un valore
    numerico provvisorio? Le voci "Da valorizzare" stanno nello Sheet 8 GIALLO, non qui?
+
+9. **Tracciabilità profili Sheet 2 col E**: ogni cella `Profili Coinvolti` ha tag
+   esplicito `[DOC: <fonte>]` per profili estratti o `[IPOTIZZATO] | rationale: <motivo>`
+   per profili ipotizzati? Nessuna lista di profili è priva di classificazione di
+   provenienza?
+
+10. **Tracciabilità Sheet 7 celle E:N**: i valori sono `P-DOC` / `P-IPO` / `S-DOC` / `S-IPO`
+    (non più `P` / `S` puro)? Ogni `*-IPO` ha rationale in col D `Fonte`? Ogni `*-DOC` ha
+    citazione documentale puntuale in col D?
 
 Se uno qualsiasi di questi check fallisce: **correggi il file prima di presentare il
 riepilogo all'utente**. Non chiedere conferma per le correzioni di self-check.

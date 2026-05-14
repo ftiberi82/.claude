@@ -17,9 +17,14 @@ description: >
   COMPORTAMENTO NON INTERATTIVO: zero domande all'utente. I dati nello sheet 1 dell'Excel
   sono già stati validati a monte da `gara-rfp-handoff` (registro scelte interpretative
   approvato). Questa skill esegue solo lettura → sostituzione testi → rendering.
+  POSIZIONAMENTO NEL FLUSSO: questa skill è lo STEP 2 OBBLIGATORIO subito dopo
+  `gara-rfp-handoff` (Fase 1). Il deck PPT è il PRIMO deliverable di brainstorming
+  delivery/bid, usato per allinearsi PRIMA della Fase 2 manuale (chiarimenti cliente).
+  Non è uno step finale né opzionale: va invocata immediatamente dopo che l'utente ha
+  approvato l'`rfp_handoff.xlsx`.
   AUTONOMIA: skill standalone, invocata sempre dall'utente in modo esplicito.
-  `gara-rfp-handoff` NON la chiama automaticamente — la generazione del deck è uno step
-  separato e manuale a valle dell'Excel di handoff.
+  `gara-rfp-handoff` NON la chiama automaticamente — la generazione del deck è invocazione
+  separata a valle dell'Excel di handoff, ma è il NEXT STEP raccomandato dalla Fase 1.
   NON USARE se: il file di input non è un workbook handoff valido (manca sheet `1. Info
   Sintetiche RFP`); l'utente ha solo documenti RFP grezzi e non un Excel handoff esistente
   → in quel caso usa `gara-rfp-handoff`.
@@ -108,7 +113,7 @@ Se il file fornito non ha il Sheet 1, comunica l'errore e termina senza produrre
 | **Input** | Documenti RFP (PDF, DOCX, ...) | Documenti RFP | Workbook Excel handoff |
 | **Output** | `rfp_analysis.json` | `rfp_handoff.xlsx` | `executive_summary.pptx` |
 | **Comportamento** | Non interattivo | Interattivo (registro scelte) | Non interattivo |
-| **Quando** | Pre-stima, analisi strategica | Pacchetto operativo per cost modeler | Vista executive da workbook esistente |
+| **Quando** | Pre-stima, analisi strategica | Pacchetto operativo per cost modeler | **Step 2: brainstorming subito dopo handoff, PRIMA della Fase 2 chiarimenti** |
 
 **In caso di dubbio sul trigger**: l'input è discriminante.
 - Input = documenti RFP grezzi → `gara-rfp-analyzer` (analisi) oppure `gara-rfp-handoff`
