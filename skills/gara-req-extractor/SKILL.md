@@ -13,6 +13,18 @@ description: >
 
 # Gara Req Extractor
 
+## Posizionamento nel workflow `gara-*`
+
+Questa è la **Step 3 della Fase 1** del workflow gara end-to-end orchestrato da
+`gara-workflow`. Sequenza completa: `gara-workflow` → `gara-rfp-analyzer` →
+**`gara-req-extractor` (qui)** → `gara-rfp-handoff` → `gara-rfp-deck` → [Fase 2 manuale] →
+`gara-effort-cost-estimator` (sempre) + `gara-bid-estimator` (condizionale, in caso di
+gare di System Integration brownfield o greenfield custom).
+
+La skill resta richiamabile **standalone** se serve solo l'estrazione dei requisiti.
+
+---
+
 Legge un documento di gara o funzionale e produce un elenco strutturato e validabile di micro-requisiti in formato JSON.
 **Non stimare GG/U in questa fase.** L'output è un artefatto intermedio da revisionare prima della stima.
 

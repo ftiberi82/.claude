@@ -33,6 +33,18 @@ description: >
 
 # Gara RFP Deck
 
+## Posizionamento nel workflow `gara-*`
+
+Questa è la **Step 5 della Fase 1** del workflow gara end-to-end orchestrato da
+`gara-workflow`. Sequenza completa: `gara-workflow` → `gara-rfp-analyzer` →
+`gara-req-extractor` → `gara-rfp-handoff` → **`gara-rfp-deck` (qui)** → [Fase 2 manuale] →
+`gara-effort-cost-estimator` (sempre) + `gara-bid-estimator` (condizionale).
+
+La skill resta richiamabile **standalone** se serve solo il deck a partire da un
+`rfp_handoff.xlsx` esistente.
+
+---
+
 Genera un deck PowerPoint Executive Summary di 10 slide a partire da un workbook Excel di
 handoff prodotto da `gara-rfp-handoff`. Il deck è pensato per il bid manager / commerciale
 che deve presentare una sintesi della gara a stakeholder interni.

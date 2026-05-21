@@ -10,6 +10,56 @@ description: >
 
 # Gara Bid Estimator v3
 
+## Posizionamento nel workflow `gara-*`
+
+Questa è la **Step 9b della Fase 3** del workflow gara end-to-end orchestrato da
+`gara-workflow`, ed è **condizionale**: la stima di solution design si produce solo per
+gare di System Integration brownfield o greenfield a sviluppo custom. Sequenza completa:
+`gara-workflow` → `gara-rfp-analyzer` → `gara-req-extractor` → `gara-rfp-handoff` →
+`gara-rfp-deck` → [Fase 2 manuale] → `gara-effort-cost-estimator` (sempre) +
+**`gara-bid-estimator` (qui, condizionale)**.
+
+## Quando NON produrre la stima di solution design
+
+Se la gara è di **Application Management** (AM) o di **soli prodotti**
+(`greenfield_prodotti`), la stima di solution design tipicamente NON ha senso e va saltata:
+in questi casi il dimensionamento avviene tramite team di presidio (canone) e plafond
+T&M valorizzati dal Cost Model (`gara-effort-cost-estimator`), non per requisito.
+
+**Regola di skip quando invocata standalone** (fuori dall'orchestratore `gara-workflow`):
+
+Prima di procedere, leggi `requisiti_estratti.json` e (se presente) `rfp_analysis.json` e
+applica un quick-check:
+
+```
+SE rfp_analysis.summary_tecnico.tipo_progetto in {evolutiva, misto}
+   AND rfp_analysis.formato_risposta.modalita_prezzi in {time_and_material, tariffa_giornaliera}
+   AND rfp_analysis.valore_economico.durata_contratto_mesi >= 24
+→ candidato AM
+SE rfp_analysis.summary_tecnico.tipo_progetto == nuovo_sviluppo
+   AND requisiti.categoria_scope distribution: cots_product + service_external >= 50%
+→ candidato greenfield_prodotti
+```
+
+In entrambi i casi emetti un **warning esplicito** e chiedi conferma all'utente:
+
+> ⚠️ Questa gara sembra essere di tipo **<AM | greenfield_prodotti>**. La stima di
+> solution design tipicamente non si produce per questo tipo di gara — il dimensionamento
+> avviene tramite il Cost Model (`gara-effort-cost-estimator`).
+>
+> Confermi di voler procedere comunque con la stima di solution design? (sì / no)
+
+Procedi solo se l'utente conferma esplicitamente. Se l'utente nega, termina senza
+produrre output.
+
+Se l'orchestratore `gara-workflow` ha già fatto la classificazione e ha invocato questa
+skill, il check è già stato fatto a monte: procedi direttamente.
+
+La skill resta comunque richiamabile **standalone** quando l'utente ha già un
+`requisiti_estratti.json` validato e vuole produrre la stima di solution design.
+
+---
+
 Legge il file `requisiti_estratti.json` e compila il template Excel ufficiale con la stima completa di solution design.
 
 ## Input richiesti

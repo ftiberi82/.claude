@@ -35,6 +35,19 @@ description: >
 
 # Gara Effort & Cost Model Estimator (Fase 3)
 
+## Posizionamento nel workflow `gara-*`
+
+Questa è la **Step 9a della Fase 3** del workflow gara end-to-end orchestrato da
+`gara-workflow`. Sequenza completa: `gara-workflow` → `gara-rfp-analyzer` →
+`gara-req-extractor` → `gara-rfp-handoff` → `gara-rfp-deck` → [Fase 2 manuale] →
+**`gara-effort-cost-estimator` (qui, sempre)** + `gara-bid-estimator` (condizionale, solo
+per gare di System Integration brownfield o greenfield custom).
+
+La skill resta richiamabile **standalone** su un `rfp_handoff.xlsx` aggiornato — non
+dipende dalla classificazione tipo gara fatta dall'orchestratore.
+
+---
+
 Produce il modello economico completo della gara a partire dal workbook Excel di handoff
 prodotto in Fase 1 (`gara-rfp-handoff`) e aggiornato manualmente in Fase 2 con le risposte
 ai chiarimenti del cliente. L'output è un file Excel separato `[nome_gara]_CostModel_v1.xlsx`
@@ -151,6 +164,43 @@ Presenta in chat all'utente, in formato Markdown strutturato:
 4. **Bloccanti residui** — lista delle voci che restano in sezione ROSSA del Sheet 8 anche
    dopo la Fase 2; per queste la skill propone uno scenario worst-case da tracciare nel
    Risk Register, ma non valorizza il Cost Model.
+
+5. **Sanity check rate card vs tariffe cliente** (OBBLIGATORIO, non saltabile).
+   Costruisci una tabella di confronto profilo per profilo tra il costo interno proposto
+   (Sheet 0 righe 30-35) e la tariffa cliente post-ribasso. Per gare AM/T&M con tariffe
+   cliente moderate, è strutturalmente impossibile avere margine se il costo interno
+   è uguale o superiore alla tariffa post-ribasso.
+
+   | Profilo | Costo interno (D30-35) | Tariffa cliente (D14-17) | Post-ribasso T&M | Margine €/gg | Margine % | Status |
+   |---|---|---|---|---|---|---|
+   | Architetto T&M | … | … | … × (1 - rib_TM) | tariffa_post - costo | % di tariffa_post | ✅/⚠/❌ |
+   | TL/Analista F. | … | … | … | … | … | … |
+   | AP | … | … | … | … | … | … |
+   | Prog | … | … | … | … | … | … |
+
+   **Regole di classificazione**:
+   - ✅ **OK** se margine €/gg ≥ 25% della tariffa post-ribasso (margine sano AM)
+   - ⚠ **WARNING** se margine 0-24% (cita esplicitamente "margine T&M sottoscala")
+   - ❌ **BLOCCANTE** se margine ≤ 0 (cita "Rate card INCOMPATIBILE col modello commerciale:
+     proposta di rate card consultancy-tier non applicabile ad AM. Rivedere tariffe interne
+     con mix nearshore prima di procedere.")
+
+   Stessa logica per il team Canone: confronto costo team aggregato vs ricavo canone netto
+   post-ribasso:
+   - Costo team Canone aggregato = `Σ(n_i × cost_i × gg_lav × 39/12)` (ignorando capacity
+     ridotta startup per semplicità in questo check)
+   - Ricavo canone netto = `canone_36m × (1 - rib_canone)`
+   - Se costo > ricavo: ❌ BLOCCANTE "margine canone strutturalmente negativo".
+
+   **Se anche un solo profilo o il canone è ❌ BLOCCANTE, NON procedere allo Step E senza
+   ricevere dall'utente una rate card alternativa o conferma esplicita "procedo comunque
+   con margine negativo"**. Non è una scelta di stima, è un blocco strutturale.
+
+   **Bug osservato (gara RAI Sistemi Informativi 18-19/05/2026):** rate card proposta SM 750
+   / TL 620 / TechL 500 / AP 380 / Prog 280 €/gg vs tariffe cliente Arch 280 / TL 250 / AP
+   210 / Prog 200 → tutti profili T&M con margine NEGATIVO (Arch -442, TL -390, AP -187,
+   Prog -96 €/gg) → margine totale scenario Base -€1.752k (-15,9%). Questo check è stato
+   introdotto **dopo** quel bug per impedirne la ricorrenza.
 
 ### Step D — Attesa approvazione
 
@@ -302,6 +352,61 @@ Colonne: `#`, `Rischio`, `Origine (Sheet 8/9)`, `Impatto stimato €`, `Probabil
 
 Ordina per Severity decrescente, poi per Probabilità decrescente.
 
+**Stile riga per severity (regola anti-incoerenza 19/05/2026).** Il template Sheet D ha
+un pre-styling con gradiente di fill basato sulla **posizione fisica** della riga
+(rosso per le prime righe, giallo per il middle, verde per le ultime), pensato per
+funzionare se i rischi sono pre-ordinati per severity decrescente. Tuttavia il pre-fill
+del template è hardcoded sulle prime ~14 righe e non sa quale severity finirà
+effettivamente su ciascuna riga.
+
+**Regola obbligatoria**: dopo aver popolato ogni riga del Risk Register, applicare il
+fill della severity reale **all'intera riga (col A:H)**, non solo alla cella severity
+(col F). Pulire anche le righe vuote residue (R19+).
+
+Palette severity (coerente con Sheet 5/9 Prio e Sheet 8/10 criticità):
+
+| Severity | Fill | Font (col F bold) |
+|---|---|---|
+| `CRITICA` | `#FEE2E2` rosso chiaro | `#991B1B` rosso scuro |
+| `ALTA` | `#FED7AA` arancione chiaro | `#9A3412` arancione scuro |
+| `MEDIA` | `#FEF3C7` giallo chiaro | `#92400E` ambra scuro |
+| `BASSA` | `#DCFCE7` verde chiaro | `#15803D` verde scuro |
+
+Snippet:
+```python
+SEV = {
+    'CRITICA': ('FEE2E2', '991B1B'),
+    'ALTA':    ('FED7AA', '9A3412'),
+    'MEDIA':   ('FEF3C7', '92400E'),
+    'BASSA':   ('DCFCE7', '15803D'),
+}
+NO_FILL = PatternFill(fill_type=None)
+for r in range(data_start, ws.max_row+1):
+    sev = str(ws.cell(row=r, column=6).value or '').strip().upper()
+    if sev in SEV:
+        bg, fg = SEV[sev]
+        fill = PatternFill('solid', fgColor=bg)
+        for c in range(1, 9):    # APPLICA A TUTTA LA RIGA A:H
+            cell = ws.cell(row=r, column=c)
+            cell.fill = fill
+            if c == 6:           # col F severity in bold colorato
+                cell.font = Font(name='Calibri', size=10, color=fg, bold=True)
+            else:
+                cell.font = Font(name='Calibri', size=10, color='000000')
+    elif not ws.cell(row=r, column=1).value:
+        # Righe vuote residue: pulizia
+        for c in range(1, 9):
+            ws.cell(row=r, column=c).fill = NO_FILL
+            ws.cell(row=r, column=c).border = Border()
+```
+
+**Bug osservato (gara RAI 19/05/2026):** prima generazione applicava il fill solo alla
+cella severity (col F), lasciando col A-E e G-H col pre-fill del template. Risultato:
+righe MEDIA con tutta la riga rossa (fill template) tranne col F gialla; righe BASSA
+con tutta riga gialla tranne col F verde; etc. La severity reale era illeggibile a
+colpo d'occhio perché contraddetta dal fill della riga. Fix: estendere il fill a tutta
+la riga (col A:H) e pulire le righe vuote (R19-R21).
+
 ### `_Esempi` — Riferimento di compilazione
 
 Ultimo sheet del workbook. Contiene esempi reali estratti dalla gara RAI per ogni sheet
@@ -395,8 +500,145 @@ Se l'utente chiede modifiche, applicale e ripresenta il registro aggiornato.
   Sheet 0 (verde/giallo/rosso per sezione). Se un parametro cambia categoria rispetto al
   default (es. una sezione Verde diventa Gialla perché la fonte ufficiale manca), aggiorna
   il fill della cella.
+- **Fill uniforme su tutte le 7 colonne A:G delle righe dati** (regola anti-incongruenza
+  19/05/2026): quando aggiorni il fill di una riga parametro per riallineare la categoria
+  (verde/giallo/rosso), applica la modifica a **tutte le colonne A-G**, non solo a B-G o
+  alla sola D. Il template aveva pre-stilizzato la colonna A (numero progressivo) con il
+  colore della categoria *originale*; dopo le risposte cliente molte categorie cambiano
+  e il col A resta orfana con il colore precedente, creando righe con col A di un colore
+  e col B-G di un altro. Snippet:
+  ```python
+  BANNER_ROWS = {6, 13, 18, 23, 29, 36, 47, 59, 65, 69}  # banner sezione: lasciare intatti
+  for r in range(7, ws.max_row+1):
+      if r in BANNER_ROWS: continue
+      if r in CERTI: fill = VERDE
+      elif r in ASSUNZIONI: fill = GIALLO
+      else: continue
+      for c in range(1, 8):  # A-G incluso col A
+          cell = ws.cell(row=r, column=c)
+          if not isinstance(cell, MergedCell):
+              cell.fill = fill
+  ```
+  Le righe banner di sezione (6, 13, 18, 23, 29, 36, 47, 59, 65, 69) hanno celle merged
+  A:G e vanno lasciate col loro stile originale (verde scuro / arancione / rosso scuro).
+  **Eccezione banner**: se durante la Fase 2 un BLOCCANTE è stato sciolto (es. R18
+  "VOLUMI T&M" era rosso `#DC2626` perché Q-001 bloccante; ora Q-001 sciolto), allinea
+  il banner al verde scuro `#059669` come gli altri banner certi e aggiorna il testo del
+  titolo da "BLOCCANTE non risolto" a "Q-NNN sciolto".
+
+**Bug osservato (gara RAI Sistemi Informativi 19/05/2026):** loop di styling
+`for c in (2,3,4,5,6,7)` aveva escluso col A → 6 categorie di incongruenze sui parametri
+con categoria cambiata post-Fase 2 (volumi T&M, % MAC, ore lav, GST, effort GST, effort
+CON, utilizzo plafond). Fix: estendere il loop a `range(1, 8)`.
+
+- **Parametri % nel Sheet 0: sempre come DECIMALI (0.10), mai come interi (10)** —
+  regola anti-1000% (19/05/2026). Le celle dei parametri % nel Sheet 0 (rows 38, 39, 40,
+  41, 64, 66, 67, 68, 70, 71, 72) hanno `number_format='0.0%'` che in Excel **moltiplica
+  per 100 in visualizzazione**. Se metti `10` per "10% ribasso canone", Excel mostra
+  `1000%` e le formule del template calcolano con `10` come moltiplicatore (es.
+  `=C7*(1-D7)` diventa `C7*(1-10) = -9*C7` → numeri negativi enormi).
+
+  Valori corretti da popolare:
+  ```python
+  # Decimali, MAI interi:
+  D38..D41 (% MAC P1-P4):   0.08, 0.12, 0.35, 0.45
+  D64 (% capacity startup): 0.60
+  D66 (% ribasso canone):   0.10
+  D67 (% ribasso T&M):      0.08
+  D68 (% utilizzo plafond): 0.85
+  D70 (% overhead PM):      0.08
+  D71 (% contingency):      0.10
+  D72 (% inflazione):       0.025
+  ```
+
+  **Conseguenza per il ricalcolo Python autoritativo**: poiché i parametri % nel file
+  sono già decimali, lo script Python NON deve dividere per 100. Le precedenti versioni
+  della skill (check 5 della validazione pre-output) avevano snippet `ribasso = D(66)/100`
+  che andava bene solo se D(66) era intero; ora con D(66)=0.10 il `/100` produrrebbe
+  `0.001`. Codice corretto:
+  ```python
+  ribasso_c = D(66)        # NO /100 — D(66) è già 0.10
+  ribasso_tm = D(67)       # già 0.08
+  util_plafond = D(68)     # già 0.85
+  pct_startup = D(64)      # già 0.60
+  oh, cont, infl = D(70), D(71), D(72)   # già 0.08, 0.10, 0.025
+  pct_p = [D(38), D(39), D(40), D(41)]   # già 0.08, 0.12, 0.35, 0.45
+  ```
+
+  **Bug osservato:** prima generazione Cost Model RAI aveva `D66=10` (interpretato come
+  1000% da Excel) — il ricalcolo Python con `/100` produceva i numeri corretti, ma
+  aprire il file in Excel mostrava margine totalmente sballato (ricavi netti negativi
+  enormi). Fix: convertire tutti gli 11 parametri % a decimali. Il ricalcolo Python ora
+  legge i decimali nativi senza dividere.
+
+- **Sheet A: colori delle righe T&M (R22-R26) post-Fase 2** — la regola template marca
+  banner R22 e righe R23-R26 come "ROSSO BLOCCANTE" perché alla nascita del template
+  i volumi T&M erano una scelta interpretativa (Capitolato vs Disciplinare). Se nel
+  workbook input la domanda Q-001 (volumi T&M) ha `Stato = Risposta ricevuta`, i volumi
+  sono confermati → banner R22 va ricolorato verde scuro `#059669`, testo aggiornato
+  rimuovendo "BLOCCANTE non risolto", e righe R23-R26 ricolorate verde chiaro `#DCFCE7`.
+  Stessa regola per la riga R10 CON: se Q-012 ha confermato sia volume CON sia effort
+  onboarding, R10 passa da giallo a verde.
+
+- **NIENTE legenda visiva in Sheet 0** (decisione UX 19/05/2026, revisione). Una legenda
+  con 4 box colorati (CERTO/ASSUNZIONE/BLOCCANTE/Blu) è **ridondante** quando la colonna
+  H "Categoria" è già popolata con etichette esplicite per ogni riga (es. `CERTO — Q-001`,
+  `BENCHMARK — Rate card AM`, `STRATEGIA — Scenario BASE`). Inoltre, su un cost model
+  realmente compilato, alcuni box della legenda (es. ROSSO BLOCCANTE) restano "vuoti" se
+  tutti i bloccanti sono stati sciolti in Fase 2.
+
+  **Regola**: lasciare righe 2-3 di Sheet 0 al loro stato originale del template (riga 1
+  = titolo blu scuro, riga 2 = sottotitolo) **senza aggiungere legenda colorata**. La
+  fonte di verità sul "perché questa cella è gialla" è la **colonna H Categoria**, che
+  contiene già la classificazione esplicita per riga.
+
+  Se si vuole comunque una legenda minima testuale, riscrivere la riga 2 del template
+  con: `"Verde=Certo (gara/Q-XXX) | Giallo=Assunzione/Benchmark | Rosso=Bloccante | Blu=Input modificabile"`
+  in carattere piccolo, **senza** box colorati separati.
+
+  **❌ NON propagare la legenda su Sheet A/B/C/D**: questi sheet sono formula-driven
+  con riferimenti `'0. Parametri'!$D$<N>` che dipendono da posizioni fisse delle righe.
+  **`ws.insert_rows(3)` sfasa tutte le formule** che puntano alle righe successive nello
+  stesso sheet (es. `=SUM(E14:E18)` continua a leggere E14:E18 ma i contenuti sono ora
+  in E15:E19), rendendo il file inservibile. Lezione 19/05/2026: tentativo di aggiungere
+  legenda visiva con `insert_rows(3)` su Sheet A/B/C/D ha sfasato tutte le formule del
+  template e l'utente ha cancellato il file perché "illeggibile".
+
+  **❌ NON usare `delete_rows` su Sheet 0**: anche svuotando la legenda, NON cancellare
+  le righe 2-3 con `delete_rows(2, 2)`. Sheet 0 ha righe a posizione fissa referenziate
+  dalle formule degli altri sheet con riferimenti assoluti `$D$7` (startup), `$D$8`
+  (canone), ecc. Cancellare righe sposterebbe i parametri verso l'alto e le formule
+  punterebbero a celle vuote/sbagliate. Solo **svuotare il contenuto** (value=None,
+  fill=NO_FILL, font=default, border=Border()) lasciando le righe vuote.
+
+- **Colonna H "Categoria" su Sheet 0** (regola UX 19/05/2026). La sola colorazione
+  della cella valore non dice al cost modeler **perché** quella cella è gialla.
+  Aggiungere una colonna H esplicita con etichetta `CERTO — <fonte>` / `BENCHMARK — <fonte>`
+  / `ASSUNZIONE — <fonte>` / `STRATEGIA — <contesto>` / `BLOCCANTE — <descrizione>` per
+  ogni riga parametro (escluse le righe banner).
+
+  Esempi di etichette specifiche per parametro:
+  - D7-12 ECONOMICS: `CERTO — Disciplinare`
+  - D14-17 TARIFFE: `CERTO — Disciplinare`
+  - D19-22 VOLUMI T&M: `CERTO — Q-001` (se Q-001 sciolto)
+  - D24-28 TEAM CANONE: `CERTO — Capitolato`
+  - D30-35 COSTI INTERNI: `BENCHMARK — Rate card AM`
+  - D37-45 DRIVER MAC: `CERTO — Q-008` (se Q-008 sciolto) o `BENCHMARK — Cost modeler`
+  - D46 ORE/GG: `ASSUNZIONE — Standard FTE`
+  - D60 GG LAV/ANNO: `BENCHMARK — Standard FTE Italia`
+  - D66-67 RIBASSI: `STRATEGIA — Scenario BASE` (sono scelte commerciali, non assunzioni)
+  - D70-72 OVERHEAD: `BENCHMARK — AM enterprise` / `BENCHMARK — ISTAT BtoB`
+
+  Il cost modeler ora vede sia il **colore** (categoria visiva) sia l'**etichetta**
+  (fonte specifica). Riduce drasticamente il "perché questa cella è gialla?".
 
 ### Step 8 — Riepilogo finale
+**Vincolo critico (introdotto 19/05/2026 dopo bug RAI):** i numeri del riepilogo DEVONO
+essere quelli prodotti dal **ricalcolo Python autoritativo** (check 5 della Validazione
+pre-output), non valori "a colpo d'occhio" né letti da `openpyxl data_only=True` (che
+restituisce solo cached values, vuoti dopo il popolamento Sheet 0). È vietato dichiarare
+margine, ricavi o costi senza averli calcolati esplicitamente nel ricalcolo Python.
+
 Presenta in chat:
 
 > **Cost Model generato — [Nome gara]**
@@ -405,15 +647,42 @@ Presenta in chat:
 > File di input aggiornato (solo Sheet 10): `rfp_handoff.xlsx`
 >
 > **Sheet 0 (Parametri)**: 57 parametri valorizzati — Verdi: N | Gialli: N | Rossi: N
-> **Sheet A (Stima Effort)**: ricalcolato — Effort canone N GG/U | Capacity presidio N GG/U | T&M N GG/U
-> **Sheet B (Cost Model)**: ricavo netto €..., costo totale €..., margine lordo €... (XX%)
-> **Sheet C (Sensitivity)**: 5 scenari — Conservativo: Y%, Base: Y%, Aggressivo: Y%, +2 plafond
+>
+> **Sheet A (Stima Effort)** — da ricalcolo Python:
+> - Effort canone driver-based: N GG/U/anno (MAC N + REP N + GES N + GST N + CON N)
+> - Capacity team presidio: N GG/U/anno (42 risorse × N GG)
+> - Buffer capacity vs effort: +N% (target ≥20%)
+> - T&M volumi: N GG/U/anno (Architetto N + TL N + AP N + Prog N)
+>
+> **Sheet B (Cost Model)** — da ricalcolo Python (scenario Base):
+> - Ricavi netti 39m: €N (startup N + canone N + T&M N + oneri N)
+> - Costi diretti 39m: €N (canone startup N + canone oper N + T&M N)
+> - Costi indiretti 39m: €N (overhead N% + contingency N% + inflazione N%×1,5)
+> - **Margine lordo 39m: €N (N%)** ← valore autoritativo dal ricalcolo Python
+> - Margine per linea servizio: Startup N% | Canone N% | T&M N%
+>
+> **Sheet C (Sensitivity)** — 5 scenari ricalcolati in Python:
+> - Conservativo (5/5/70%): N% | Base (10/8/100%): N% | Aggressivo (15/12/100%): N%
+> - Plafond Conservativo: N% | Plafond Base: N%
+>
 > **Sheet D (Risk Register)**: N rischi (CRITICA: N, ALTA: N, MEDIA: N, BASSA: N)
+>
+> **Sanity check rate card vs tariffe cliente** (Step C punto 5):
+> - Architetto: margine €N/gg (N%) [✅/⚠/❌]
+> - TL: €N/gg (N%) [✅/⚠/❌]
+> - AP: €N/gg (N%) [✅/⚠/❌]
+> - Prog: €N/gg (N%) [✅/⚠/❌]
+> - Canone aggregato: ricavo netto €N vs costo team €N → margine €N (N%) [✅/⚠/❌]
 >
 > **Distribuzione fonte dati Sheet 0**: certo N | assunzione operativa N | benchmark N | bloccante N
 >
+> **Anomalie rilevate dal self-check** (vuoto se nessuna):
+> - Bug template B!C15: <descrizione + workaround>
+> - <altre anomalie>
+>
 > **Prossimo passo**: revisione cost modeler / commercial review per definire strategia di
-> ribasso e finalizzare offerta economica.
+> ribasso e finalizzare offerta economica. Se il margine scenario Base è ≤ 0%, è
+> obbligatoria una revisione strategica PRIMA della submission.
 
 ## Tracciabilità
 
@@ -437,8 +706,17 @@ scelte interpretative — citale per riferimento.
 - **Modifica Sheet 10 dell'input solo dopo approvazione**: la modifica è IN-PLACE ma
   vincolata al solo Sheet 10. Tutti gli altri sheet dell'input restano invariati
   (verifica byte-level pre/post).
-- **Mai valori calcolati in Python e incollati come hardcoded**: tutti i calcoli del
-  Cost Model devono essere formule Excel.
+- **Mai valori calcolati in Python e incollati come hardcoded NEL FILE EXCEL**: tutti i
+  calcoli del Cost Model **scritti nel file** devono essere formule Excel.
+- **Riepilogo Step 8 sempre da ricalcolo Python autoritativo**: il riepilogo presentato
+  all'utente NON deve mai contenere numeri "a colpo d'occhio" né letti da
+  `openpyxl data_only=True` (che restituisce cached values stale). Replicare le formule
+  Sheet A/B/C in Python e usare quei valori come fonte unica del riepilogo. Vedi
+  Self-check check 5 per snippet di riferimento.
+- **Sanity check rate card OBBLIGATORIO prima dello Step E**: per ogni profilo T&M
+  confrontare costo interno vs tariffa cliente post-ribasso. Se un solo profilo ha
+  margine ≤ 0%, FERMARSI e chiedere rate card alternativa o conferma esplicita. Stesso
+  check sul team Canone aggregato. Vedi Step C punto 5.
 - **Benchmark sempre con fonte**: se proponi un valore basato su benchmark, cita la fonte
   e il prefisso `[BENCHMARK: <fonte>]` nella nota cella. Senza fonte non è ammesso.
 - **Bloccanti non si valorizzano**: se un dato è classificato `bloccante`, non
@@ -479,11 +757,101 @@ all'utente:
 3. **Formule sezione T&M (rows 23-26)** — devono puntare a `$D$19-$D$22` (volumi T&M
    GG/U/anno).
 
+4. **Formule Sheet B righe 15-17 — Costo team Canone** (esteso 19/05/2026 dopo bug RAI).
+   Sheet B sez. B.2 ha 3 formule che calcolano il costo team Canone (Startup, Operativo,
+   T&M). Pattern atteso:
+   - **B!C15 Costo team Canone Startup**: deve essere `Σ(n_i × cost_i) × gg_lav × pct_startup × (mesi_startup/12)`
+     dove `n_i` punta a `$D$24..28` (numero risorse) e `cost_i` a `$D$30..34` (costi €/gg).
+   - **B!C16 Costo team Canone Operativo**: stesso pattern, `× (mesi_oper/12)`, no `pct_startup`.
+   - **B!C17 Costo T&M**: `Σ(volumi_i × cost_i)` con `volumi_i = D$19..22`,
+     `cost_i = D$35` (Architetto) + `D$31` (TL) + `D$33` (AP) + `D$34` (Prog).
+
+   **Bug del template rilevato sulla gara RAI (18/05/2026):** la formula `B!C15` aveva
+   `'0. Parametri'!$D$30 * '0. Parametri'!$D$30` come primo termine — moltiplicazione
+   del costo SM per sé stesso (€750 × €750 = €562.500) invece che `D$24 * D$30`
+   (1 SM × €750 = €750). Analoghi errori su altre righe della sommatoria.
+
+   **Verifica programmatica** (eseguire dopo Step 7, prima di Step 8):
+   ```python
+   formula_c15 = ws_B.cell(row=15, column=3).value or ''
+   # Pattern atteso: contiene "$D$24" (n SM) E "$D$30" (cost SM)
+   has_n_sm = '$D$24' in formula_c15 or '$D24' in formula_c15
+   has_cost_sm = '$D$30' in formula_c15 or '$D30' in formula_c15
+   if not (has_n_sm and has_cost_sm):
+       # Bug template confermato — registra rischio CRITICO
+       ...
+   ```
+
+   Se il bug è confermato: (a) inserire una voce CRITICA in Sheet D, (b) **forzare il
+   ricalcolo Python (check 5 sotto) come autoritativo**, (c) avvisare l'utente nel
+   riepilogo Step 8.
+
+5. **Ricalcolo Python autoritativo dei Sheet A/B/C** (introdotto 19/05/2026, **NON saltabile**).
+   Causa root del fallimento: `openpyxl.load_workbook(..., data_only=True)` legge solo
+   i valori **cached** dell'ultimo salvataggio Excel — NON valuta le formule. Dopo il
+   popolamento del Sheet 0 il file non è ancora stato aperto in Excel, quindi i valori
+   cached delle formule a valle sono quelli del template (stale o vuoti). Leggere quei
+   valori e dichiararli come output del cost model produce numeri inventati.
+
+   **Workaround obbligatorio**: replicare le formule Sheet A/B/C in Python a partire dai
+   57 parametri del Sheet 0, leggendo i valori con `data_only=False` (formule come
+   stringhe, ma noi calcoliamo i numeri direttamente in Python dai parametri input).
+   I valori prodotti da questa replica sono **gli unici autoritativi** per il riepilogo
+   Step 8.
+
+   Snippet di riferimento (replica formule core):
+   ```python
+   import openpyxl
+   wb = openpyxl.load_workbook(out_path, data_only=False)
+   ws0 = wb['0. Parametri']
+   def D(row): return float(ws0.cell(row=row, column=4).value or 0)
+
+   # Parametri input
+   startup, canone_36m, plafond_tm, oneri = D(7), D(8), D(9), D(12)
+   t_arch, t_tl, t_ap, t_prog = D(14), D(15), D(16), D(17)
+   v_arch, v_tl, v_ap, v_prog = D(19), D(20), D(21), D(22)
+   n_sm, n_tl, n_techl, n_ap, n_prog = D(24), D(25), D(26), D(27), D(28)
+   c_sm, c_tl, c_techl, c_ap, c_prog, c_arch_tm = D(30), D(31), D(32), D(33), D(34), D(35)
+   gg, m_start, m_oper, pct_start = D(60), D(61), D(62), D(64)/100
+   rib_c, rib_t = D(66)/100, D(67)/100
+   oh, cont, infl = D(70)/100, D(71)/100, D(72)/100
+
+   # Sheet B Ricavi netti 39m
+   ric_canone = canone_36m * (1 - rib_c)
+   ric_tm_lordo = (v_arch*t_arch + v_tl*t_tl + v_ap*t_ap + v_prog*t_prog) * 3
+   ric_tm = ric_tm_lordo * (1 - rib_t)
+   ricavi_tot = startup + ric_canone + ric_tm + oneri
+
+   # Sheet B Costi diretti (formula CORRETTA, bypass bug)
+   team_anno = (n_sm*c_sm + n_tl*c_tl + n_techl*c_techl + n_ap*c_ap + n_prog*c_prog) * gg
+   c_startup = team_anno * pct_start * (m_start/12)
+   c_canone = team_anno * (m_oper/12)
+   c_tm = (v_arch*c_arch_tm + v_tl*c_tl + v_ap*c_ap + v_prog*c_prog) * 3
+   diretti = c_startup + c_canone + c_tm
+
+   # Indiretti
+   indiretti = diretti * (oh + cont + infl * 1.5)
+   costi_tot = diretti + indiretti
+
+   # Margine
+   margine = ricavi_tot - costi_tot
+   margine_pct = margine / ricavi_tot * 100
+   ```
+
+   Stesso pattern va replicato per:
+   - Sheet A (effort canone driver-based + capacity team + T&M volumi)
+   - Sheet C (5 scenari sensitivity con varianti ribasso/utilizzo plafond/base Capitolato/Plafond)
+
+   **I valori prodotti da questo ricalcolo Python sono l'UNICO output da usare nel
+   riepilogo Step 8.** Non leggere mai i Sheet A/B/C col `data_only=True` aspettandosi
+   valori validi.
+
 **Azione in caso di failure**: NON modificare le formule del template dall'output
 generato (vincolo "Mai modificare le formule di A, B, C"). Invece: (a) inserire una voce
 CRITICA nel Risk Register Sheet D che descriva il bug e il workaround manuale, (b)
 comunicare all'utente nel riepilogo finale che il template ha anomalie strutturali da
-correggere alla sorgente (`assets/template_cost_model.xlsx`).
+correggere alla sorgente (`assets/template_cost_model.xlsx`), (c) usare i numeri del
+ricalcolo Python (check 5) come autoritativi.
 
 ## Asset
 

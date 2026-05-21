@@ -3,9 +3,9 @@ name: gara-rfp-handoff
 description: >
   Analizza la documentazione commerciale e tecnica di una RFP e produce un workbook Excel di
   handoff per il team che dovrà stimare. Si basa su un template predefinito (`assets/template_rfp_handoff.xlsx`)
-  con 10 sheet operativi + 1 sheet di esempi: Info Sintetiche RFP, Mappatura Capability,
-  Driver di Stima, Gap Analysis, Domande Chiarimento, Assunzioni, Matrice Profili x Capability,
-  Input Cost Model, Registro Chiarimenti, Nota di Handoff.
+  con 10 sheet operativi numerati + 1 sheet Requisiti + 1 sheet di esempi: Info Sintetiche RFP,
+  Mappatura Capability, Requisiti, Driver di Stima, Gap Analysis, Domande Chiarimento,
+  Assunzioni, Matrice Profili x Capability, Input Cost Model, Registro Chiarimenti, Nota di Handoff.
   TRIGGER quando: l'utente fornisce documenti commerciali e/o tecnici di una RFP, capitolato,
   bando, CSA o disciplinare e chiede di preparare il pacchetto per la stima, l'executive summary
   della gara, la mappatura capability, i driver di stima, la matrice profili, le domande di
@@ -20,8 +20,10 @@ description: >
   esplicitamente in chat tutte le scelte interpretative (estratto / inferito / assunto) e si
   ferma in attesa di approvazione. Le assunzioni richiedono conferma esplicita prima di
   procedere. Questo è comportamento intenzionale, non un errore — non riprendere automaticamente.
-  AUTONOMIA: skill end-to-end. Non richiede output di altre skill `gara-*` come input, ma se
-  l'utente fornisce un `rfp_analysis.json` esistente la skill può usarlo come contesto aggiuntivo.
+  PREREQUISITO OBBLIGATORIO: la skill richiede in input `requisiti_estratti.json` prodotto da
+  `gara-req-extractor` (schema v2.0). Se il file non è nella working directory, la skill si
+  ferma e indirizza l'utente a `gara-req-extractor` prima di proseguire. Opzionalmente, se è
+  presente `rfp_analysis.json` prodotto da `gara-rfp-analyzer`, viene usato come contesto.
   NON USARE se l'utente vuole solo un'analisi strategica/economica della gara, un file JSON
   di analisi, il valore della gara, i criteri di aggiudicazione o la verifica EOL/LTS dello
   stack — in quel caso usa `gara-rfp-analyzer`. Questa skill (`gara-rfp-handoff`) si attiva
@@ -33,6 +35,18 @@ description: >
 ---
 
 # Gara RFP Handoff
+
+## Posizionamento nel workflow `gara-*`
+
+Questa è la **Step 4 della Fase 1** del workflow gara end-to-end orchestrato da
+`gara-workflow`. Sequenza completa: `gara-workflow` → `gara-rfp-analyzer` →
+`gara-req-extractor` → **`gara-rfp-handoff` (qui)** → `gara-rfp-deck` → [Fase 2 manuale] →
+`gara-effort-cost-estimator` (sempre) + `gara-bid-estimator` (condizionale).
+
+La skill resta richiamabile **standalone** se serve solo l'handoff verso il team di stima
+(richiede comunque `requisiti_estratti.json` come prerequisito obbligatorio già introdotto).
+
+---
 
 Prepara il pacchetto di handoff verso la fase di stima a partire dai documenti commerciali e
 tecnici di una RFP. L'output è un singolo file Excel — `rfp_handoff.xlsx` — generato copiando
@@ -67,6 +81,9 @@ step successivo.
 
 ## Input richiesti
 
+- **Obbligatorio**: `requisiti_estratti.json` prodotto da `gara-req-extractor` (schema v2.0)
+  presente nella working directory. Se manca, la skill **si ferma** e indirizza l'utente a
+  `gara-req-extractor` prima di proseguire (vedi Workflow → Step 1bis).
 - Documenti commerciali della RFP (se presenti): `pdf`, `docx`, `xlsx`, `ppt`, `pptx`.
 - Documenti tecnici della RFP: stessi formati.
 - Opzionale: `rfp_analysis.json` prodotto da `gara-rfp-analyzer` (usato come contesto se presente).
@@ -188,7 +205,15 @@ documento, registralo come gap (Sheet 4) o come parametro DA ASSUMERE (Sheet 8 g
 
 ## Struttura del template
 
-Il file `assets/template_rfp_handoff.xlsx` contiene 11 sheet (ordine esatto):
+Il file `assets/template_rfp_handoff.xlsx` contiene 12 sheet (ordine esatto):
+`1. Info Sintetiche RFP`, `2. Mappatura Capability`, `Requisiti`, `3. Driver di Stima`,
+`4. Gap Analysis`, `5. Domande Chiarimento`, `6. Assunzioni`, `7. Matrice Profili x Capability`,
+`8. Input Cost Model`, `9. Registro Chiarimenti`, `10. Nota di Handoff`, `_Esempi`.
+
+Lo sheet `Requisiti` è inserito in posizione fisica 3 (subito dopo `2. Mappatura Capability`)
+ma **non porta prefisso numerico**: i sheet numerati 3-10 mantengono i loro numeri originali
+per non rompere le skill a valle (`gara-rfp-deck`, `gara-effort-cost-estimator`) che li
+referenziano per nome.
 
 ### `1. Info Sintetiche RFP` — form anagrafico
 Layout label-valore in colonne A (label) / B (valore). Sezioni:
@@ -230,6 +255,93 @@ Fase 3 — un profilo ipotizzato richiede validazione con il cliente o assunzion
 nel Risk Register; un profilo estratto è già parte del contratto. Senza distinzione esplicita
 il cost modeler rischia di trattare gli ipotizzati come dati certi.
 
+### `Requisiti` — elenco requisiti scope (popolato da `gara-req-extractor`)
+
+Sheet **read-only dalla sorgente JSON**. Una riga per ogni elemento dell'array `requisiti`
+del file `requisiti_estratti.json` (schema v2.0). 16 colonne, mappa 1:1 con il JSON:
+
+| Col | Header | Origine JSON | Drop-down ammessi |
+|---|---|---|---|
+| A | `ID` | `id` (es. `REQ-001`, `REQ-001.1`) | — |
+| B | `Tipo` | `tipo` | `padre`, `figlio`, `singolo` |
+| C | `ID Padre` | `padre_id` (vuoto se `tipo` ≠ figlio) | — |
+| D | `Area Funzionale` | `area_funzionale` | (12-14 aree predefinite dell'extractor) |
+| E | `Testo Bando` | `testo_bando` (verbatim o parafrasi fedele) | — |
+| F | `Soluzione Proposta` | `soluzione_proposta` (Schermate / API / Dati / Processi) | — |
+| G | `Inferenza` | `inferenza` | `esplicito`, `stimato`, `da_chiarire` |
+| H | `Note Inferenza` | `note_inferenza` (vuoto se `inferenza = esplicito`) | — |
+| I | `Rationale Requisito` | `rationale_requisito` (1-2 frasi) | — |
+| J | `Rationale Soluzione` | `rationale_soluzione` (1-3 frasi) | — |
+| K | `Categoria Scope` | `categoria_scope` | `custom_software`, `cots_product`, `service_external`, `out_of_scope` |
+| L | `Scope Dettaglio` | `scope_dettaglio` serializzato `nome_prodotto | fornitore | tipo_costo | motivazione` | — |
+| M | `Priorità` | `priorita` | `must_have`, `should_have`, `nice_to_have` |
+| N | `Certezza` | `certezza` | `estratto`, `inferito`, `assunto` |
+| O | `Fonte (Pag/Sez)` | `fonte_pag` | — |
+| P | `Fonte Estratto` | `fonte_estratto` (max 20 parole verbatim) | — |
+
+**Regole di popolamento**:
+- Una riga per ogni elemento di `requisiti[]`. Ordine = stesso del JSON (già ordinato per area
+  e tipo padre/figlio in `gara-req-extractor`).
+- Per ogni `tipo = figlio`, il valore di `padre_id` in col C deve corrispondere a un `id`
+  presente in col A: verificato dal self-check (check 11).
+- Col L (`Scope Dettaglio`) si compila solo se `categoria_scope ≠ custom_software`. Serializza
+  l'oggetto `scope_dettaglio` come stringa unica con separatore ` | `: ordine fisso
+  `nome_prodotto | fornitore | tipo_costo | motivazione`. Se uno dei campi è null, lascia
+  vuoto il segmento ma mantieni i separatori.
+- Le `domande_bloccanti` del JSON **NON vanno qui**: confluiscono nel `5. Domande Chiarimento`
+  e nel `9. Registro Chiarimenti` (vedi regole specifiche dei due sheet).
+- **Non modificare a mano**: lo sheet riflette 1:1 il JSON. Se serve aggiungere/correggere
+  un requisito, ri-eseguire `gara-req-extractor` e ri-popolare. Modifiche manuali introducono
+  drift con `gara-bid-estimator` che legge dallo stesso JSON.
+
+**Stile differenziato per `tipo` (regola di rendering).** Le righe `padre` rappresentano
+visivamente un **contenitore** dei propri figli e devono distinguersi a colpo d'occhio.
+Schema obbligatorio:
+
+| Tipo | Fill riga | Font colonne label (A, B, D, E, M) | Font colonne verbose |
+|---|---|---|---|
+| `padre` | `#E0E7FF` lavanda chiara | `#3730A3` viola scuro **bold** | `#1E1B4B` viola molto scuro regular |
+| `figlio` | nessuno | nero `#000000` regular | nero `#000000` regular |
+| `singolo` | nessuno | nero `#000000` regular | nero `#000000` regular |
+
+Effetto visivo atteso: scorrendo lo sheet, ogni "blocco gerarchico" è una riga padre
+lavanda+bold seguita dalle sue figli regular. Le righe `singolo` (capability non gerarchica)
+sono visivamente identiche alle figli — la sola differenza è la colonna B (`Tipo`).
+
+Le colonne `verbose` (col C `ID Padre`, F `Soluzione Proposta`, G-N varie, O-P fonte) ricevono
+sul padre il font color più scuro `#1E1B4B` ma non bold, per mantenere leggibilità su
+testi lunghi. Le colonne `label` (A `ID`, B `Tipo`, D `Area Funzionale`, E `Testo Bando`, M
+`Priorità`) ricevono il font bold viola `#3730A3`.
+
+Allineamento: `left + top + wrap_text` per le colonne testuali, `center` per A/G/K/M/N.
+
+Snippet:
+```python
+from openpyxl.styles import Font, PatternFill, Alignment
+PARENT_FILL = PatternFill('solid', fgColor='E0E7FF')
+LABEL_COLS = (1, 2, 4, 5, 13)  # A, B, D, E, M
+for r in data_rows:
+    tipo = str(ws.cell(row=r, column=2).value or '').strip()
+    if tipo == 'padre':
+        for c in range(1, 17):
+            cell = ws.cell(row=r, column=c)
+            cell.fill = PARENT_FILL
+            color = '3730A3' if c in LABEL_COLS else '1E1B4B'
+            cell.font = Font(name='Calibri', size=10, color=color,
+                             bold=(c in LABEL_COLS))
+    else:  # figlio o singolo
+        for c in range(1, 17):
+            cell = ws.cell(row=r, column=c)
+            cell.fill = PatternFill(fill_type=None)
+            cell.font = Font(name='Calibri', size=10, color='000000')
+```
+
+**Why questa scelta cromatica.** La tinta lavanda `#E0E7FF` è deliberatamente fuori dal
+palette semaforico già usato negli altri sheet (verde/giallo/rosso/azzurro per criticità in
+Sheet 5/8/9/10, verde/giallo/azzurro/viola chiaro per primary/support in Sheet 7) — la
+gerarchia padre-figlio non è una scala di criticità ma una **struttura**, quindi richiede una
+palette propria. Il viola scuro `#3730A3` mantiene il contrasto WCAG AA sul fill lavanda.
+
 ### `3. Driver di Stima`
 Colonne: `Capability (L2)`, `Driver Disponibile da RFP`, `Valore / Riferimento RFP`,
 `Driver Mancante / Gap`, `Impatto sulla Stima` (drop-down ALTO/MEDIO/BASSO),
@@ -244,10 +356,69 @@ Una riga per ogni gap. **Le incoerenze tra documenti vanno qui con `Priorità=AL
 replicate nello sheet 8 come parametri BLOCCANTI.
 
 ### `5. Domande Chiarimento`
+
+**Posizionamento e ciclo di vita.** Lo Sheet 5 è la **baseline statica** delle domande
+prodotta a fine Fase 1. Una volta scritto non viene più toccato: serve come catalogo di
+riferimento per allegare all'offerta tecnica, per generare il PDF da inviare al portale
+chiarimenti del cliente, e come "snapshot iniziale" da confrontare a fine Fase 2 per
+capire cosa è cambiato. Lo Sheet 9 è la **vista viva** delle stesse domande con tracciamento
+di stato: la stessa lista, ma estesa con campi che evolvono (Stato, Data Risposta, Sintesi,
+Bloccante per stima). Il `#` è identico tra i due sheet (regola di coerenza ID) così è
+sempre possibile riconciliare. **Regola pratica:** dopo aver compilato Sheet 5, replicare
+immediatamente le righe in Sheet 9 con `Stato = Non inviato` — vedi sezione Sheet 9.
+
 Colonne: `#`, `Capability`, `Categoria` (es. Volume/Sizing, Tecnica, Contrattuale, Procedurale),
 `Testo Domanda`, `Motivazione / Impatto sulla Stima`, `Prio` (drop-down 1/2/3 — 1=critica).
 Le domande devono essere **specifiche e azionabili** — niente domande generiche tipo
 "ci può fornire più dettagli?".
+
+**Merge delle `domande_bloccanti` di `requisiti_estratti.json`**: ogni elemento dell'array
+`domande_bloccanti` del JSON diventa una riga in questo sheet con:
+- `Capability` = `area` del JSON (es. `Autenticazione & IAM`)
+- `Categoria` = `Scope/Requisito` (categoria dedicata al merge dal JSON)
+- `Testo Domanda` = `[Q-NNN] ` + `domanda` del JSON + ` (opzioni: ` + join di `opzioni` + `)` —
+  il prefisso `[Q-NNN]` (con NNN = `id` del JSON, es. `[Q-001]`) è obbligatorio per la
+  tracciabilità verso la sorgente.
+- `Motivazione / Impatto sulla Stima` = `impatto_stima` del JSON
+- `Prio` = `1` (le `domande_bloccanti` sono sempre critiche per definizione)
+
+**Stile semaforico colonna `Prio` (obbligatorio).** Applicare alla cella `F{r}` di ogni
+domanda un fill e font color che rispecchino la priorità, in modo che il lettore identifichi
+a colpo d'occhio le criticità. Stesso schema da replicare 1:1 nello Sheet 9 (vedi sezione
+`9. Registro Chiarimenti` per cross-sheet consistency).
+
+| Prio | Fill | Font | Semantica |
+|---|---|---|---|
+| `1` | `#FEE2E2` rosso chiaro | `#991B1B` rosso scuro bold | Critica — chiarimento bloccante |
+| `2` | `#FED7AA` arancione chiaro | `#9A3412` arancione scuro bold | Alta — sizing/operativa |
+| `3` | `#DCFCE7` verde chiaro | `#15803D` verde scuro bold | Bassa — contrattuale generale |
+
+Allineamento centrato. La colorazione tocca solo la cella `Prio` (col F), non l'intera riga
+(le righe restano neutre per non saturare visivamente).
+
+Snippet:
+```python
+from openpyxl.styles import Font, PatternFill, Alignment
+PRIO_STYLE = {
+    '1': ('FEE2E2', '991B1B'),  # rosso
+    '2': ('FED7AA', '9A3412'),  # arancione
+    '3': ('DCFCE7', '15803D'),  # verde
+}
+CENTER = Alignment(horizontal='center', vertical='center')
+for r in range(4, last_row + 1):
+    cell = ws.cell(row=r, column=6)  # F = Prio
+    key = str(cell.value or '').strip()
+    if key in PRIO_STYLE:
+        fg, fc = PRIO_STYLE[key]
+        cell.fill = PatternFill('solid', fgColor=fg)
+        cell.font = Font(name='Calibri', size=10, color=fc, bold=True)
+        cell.alignment = CENTER
+```
+
+**Bug storico (15/05/2026 RAI Sistemi Informativi):** il template aveva Prio 1 in rosso
+ma Prio 2 e Prio 3 entrambe in giallo (`#FEF3C7`) — il lettore non distingueva tra "alta"
+e "bassa". Sullo Sheet 9 le 3 priorità erano tutte bianche. Fix: template patchato (60
+celle Prio reset) + schema fisso codificato nella skill.
 
 ### `6. Assunzioni`
 Colonne: `#`, `Capability`, `Assunzione`, `Base / Fonte`, `Valore Adottato`,
@@ -338,6 +509,82 @@ documentato (col H Sheet 2) — NON creare un profilo ipotizzato duplicato.
 AP, Prog) come unici profili abilitati a coprire MAV/MEV/PRJ/SPE, allora `P-DOC` su tutte
 le 4 capability T&M per ognuno dei 4 profili è un'assegnazione esplicita.
 
+**Stile semaforico obbligatorio per le celle E:N (regola di rendering).** Le celle valorizzate
+con tag devono essere riformattate dopo la scrittura per dare al lettore un heatmap
+immediatamente leggibile. Non è opzionale: il fill placeholder del template (`#F8FAFC` con
+font `#CBD5E1`) rende i valori illeggibili in Excel e va sempre sovrascritto.
+
+Schema cromatico da applicare a ogni cella E:N popolata:
+
+| Tag | Fill (hex) | Font (hex) | Bold | Semantica visiva |
+|---|---|---|---|---|
+| `P-DOC` | `#DCFCE7` (verde chiaro) | `#15803D` (verde scuro) | sì | Primario certo → certezza alta |
+| `P-IPO` | `#FEF3C7` (giallo chiaro) | `#92400E` (ambra scuro) | sì | Primario ipotizzato → warning, da validare |
+| `S-DOC` | `#DBEAFE` (azzurro chiaro) | `#1E40AF` (blu scuro) | sì | Supporto certo |
+| `S-IPO` | `#EDE9FE` (viola chiaro) | `#6B21A8` (viola scuro) | sì | Supporto ipotizzato |
+| (cella vuota) | nessuno (`fill_type=None`) | nero (`#000000`) | no | N/A — non assegnato |
+
+Snippet Python di riferimento (da applicare a tutte le celle profilo, righe Canone + T&M,
+colonne E:N):
+```python
+from openpyxl.styles import Font, PatternFill, Alignment
+SEMAPHORE = {
+    'P-DOC': ('DCFCE7', '15803D'),
+    'P-IPO': ('FEF3C7', '92400E'),
+    'S-DOC': ('DBEAFE', '1E40AF'),
+    'S-IPO': ('EDE9FE', '6B21A8'),
+}
+CENTER = Alignment(horizontal='center', vertical='center')
+for r in profile_rows:                       # righe profilo Canone + T&M
+    for c in range(5, 15):                   # colonne E-N
+        cell = ws.cell(row=r, column=c)
+        val = str(cell.value or '').strip()
+        if val in SEMAPHORE:
+            fg, fc = SEMAPHORE[val]
+            cell.fill = PatternFill('solid', fgColor=fg)
+            cell.font = Font(name='Calibri', size=10, color=fc, bold=True)
+        else:
+            cell.fill = PatternFill(fill_type=None)
+            cell.font = Font(name='Calibri', size=10, color='000000')
+        cell.alignment = CENTER
+```
+
+**Legenda riga 4 da riscrivere** per riflettere lo schema cromatico (sovrascrivi il testo
+originale "LEGENDA: P = Primario..." che si riferisce alla notazione vecchia P/S):
+```
+LEGENDA — P-DOC (verde) Primario estratto • P-IPO (giallo) Primario ipotizzato + rationale
+in col D • S-DOC (azzurro) Supporto estratto • S-IPO (viola) Supporto ipotizzato •
+cella vuota = N/A
+```
+
+**Merge fantasma del template (anti-data-loss specifico Sheet 7).** Il template
+`assets/template_rfp_handoff.xlsx` ha (versioni precedenti la patch del 15/05/2026)
+due `MergedCellRange` residui sulle righe `A23:N23` e `A29:N29` non visibili ma che
+intercettano la scrittura: un `safe_set(ws, 23, 2, ...)` viene silenziosamente rifiutato
+perché `B23` è MergedCell, e il profilo destinato a quella riga sparisce. Bug osservato
+sulla gara RAI Sistemi Informativi: il profilo `Technical Leader / Analista Funzionale T&M`
+(5.100+3.400 GG/U, €250/gg) andò perso lasciando solo `A23='T&M'` e B23 vuoto.
+
+Prassi obbligatoria all'inizio del popolamento Sheet 7:
+```python
+for rng in ['A23:N23', 'A29:N29']:
+    if rng in [str(r) for r in ws.merged_cells.ranges]:
+        ws.unmerge_cells(rng)
+```
+Dopodiché il banner `SERVIZI A RICHIESTA T&M` va ricostruito a riga 21 (subito dopo
+i 14 profili Canone in righe 6-19) con merge esplicito + stile coerente al banner Canone:
+```python
+ws.cell(row=21, column=1).value = 'SERVIZI A RICHIESTA T&M - Profili a tariffa giornaliera (...)'
+ws.merge_cells('A21:N21')
+banner = ws.cell(row=21, column=1)
+banner.fill = PatternFill('solid', fgColor='1E3A5F')   # stesso del banner Canone
+banner.font = Font(name='Calibri', size=11, bold=True, color='FFFFFF')
+banner.alignment = Alignment(horizontal='left', vertical='center', indent=1)
+```
+I 4 profili T&M (Architetto, TL/Analista Funzionale, AP, Prog) seguono nelle righe 22-25.
+Eseguire questa unmerge **prima** di popolare la sezione T&M, altrimenti il TL/Analista
+Funzionale a riga 23 viene perso senza errore esplicito.
+
 ### `8. Input Cost Model` — parametri per il cost modeler
 Layout a 3 sezioni codificate per colore:
 - **VERDE — PARAMETRI CERTI** (riga 8): dati estratti verbatim, utilizzabili direttamente.
@@ -398,13 +645,106 @@ d) **AMBIGUITÀ INTERPRETATIVE NON RISOLVIBILI INTERNAMENTE**
    - SLA H24 o solo durante orario presidio?
    - Manutenzione modelli AI/ML in produzione vs sviluppo ex-novo
 
+**Stile esplicito su ogni riga popolata (regola di rendering anti-leak).** Non
+affidarsi al pre-styling che il template potrebbe avere su un sotto-intervallo di righe:
+i contenuti delle 3 sezioni hanno lunghezza variabile per ogni RFP (es. la sezione VERDE
+può avere 40 voci per una RFP piccola o 90 per una enterprise) e qualunque pre-styling
+del template per N righe finirà sempre o sotto-allocato (le ultime righe restano senza
+stile) o sovra-allocato con tinte sbagliate (righe verdi che cadono dentro la zona
+pre-stilizzata gialla/rossa).
+
+Pertanto: dopo aver scritto i contenuti, **applicare esplicitamente lo stile per gruppo
+a tutte e sole le righe effettivamente popolate**, scorrendole una per una. Schema
+cromatico fisso (coerente con lo stile semaforico dello Sheet 7):
+
+| Gruppo | Fill riga | Font riga | Fill banner | Font banner |
+|---|---|---|---|---|
+| VERDE (Parametri Certi) | `#DCFCE7` | `#065F46` | `#15803D` | `#FFFFFF` bold |
+| GIALLO (Da Assumere) | `#FEF3C7` | `#92400E` | `#D97706` | `#FFFFFF` bold |
+| ROSSO (Bloccanti) | `#FEE2E2` | `#991B1B` | `#B91C1C` | `#FFFFFF` bold |
+
+Per la colonna `#` (col A) di ogni riga di contenuto, applicare bold; le altre colonne
+in regular. Banner di sezione: merge `A:F`, font bianco bold 11pt, allineamento sinistro
+con indent 1.
+
+Snippet di riferimento:
+```python
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+GROUP_STYLE = {
+    'V': ('DCFCE7', '065F46', '15803D'),  # fill_row, font_row, fill_banner
+    'G': ('FEF3C7', '92400E', 'D97706'),
+    'R': ('FEE2E2', '991B1B', 'B91C1C'),
+}
+THIN = Side(border_style='thin', color='E5E7EB')
+ROW_BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
+LEFT = Alignment(horizontal='left', vertical='center', wrap_text=True, indent=1)
+
+# Banner di sezione
+for grp, banner_r in banner_rows.items():
+    fill_row, font_row, fill_banner = GROUP_STYLE[grp]
+    ws.merge_cells(f'A{banner_r}:F{banner_r}')
+    cell = ws.cell(row=banner_r, column=1)
+    cell.fill = PatternFill('solid', fgColor=fill_banner)
+    cell.font = Font(name='Calibri', size=11, bold=True, color='FFFFFF')
+    cell.alignment = Alignment(horizontal='left', vertical='center', indent=1)
+
+# Righe di contenuto - ESPLICITAMENTE su ogni riga popolata, dalla prima all'ultima
+for grp, rows in content_groups.items():     # rows = [9,10,...,94] per V, ecc.
+    fill_row, font_row, _ = GROUP_STYLE[grp]
+    fill = PatternFill('solid', fgColor=fill_row)
+    for r in rows:
+        for c in range(1, 7):   # A-F
+            cell = ws.cell(row=r, column=c)
+            cell.fill = fill
+            cell.font = Font(name='Calibri', size=10, color=font_row, bold=(c == 1))
+            cell.alignment = LEFT
+            cell.border = ROW_BORDER
+```
+
+**Bug storico evitato (15/05/2026 RAI Sistemi Informativi):** le precedenti generazioni
+del workbook avevano l'ultima riga di ogni gruppo senza stile (es. V86 era bianca con
+font default mentre V1-V85 erano verdi) perché lo script si affidava al pre-styling del
+template anziché applicare lo stile riga per riga. Inoltre, alcune righe verdi cadevano
+fisicamente dentro la zona pre-stilizzata gialla/rossa del template, finendo colorate
+in modo errato. Il template è ora stato patchato per rimuovere il pre-styling fragile
+delle righe di contenuto (le righe 9..120 non hanno più alcun fill di default), così
+ogni generazione DEVE applicare esplicitamente lo stile per gruppo come da snippet sopra.
+
 ### `9. Registro Chiarimenti`
-Estende il Sheet 5 con tracciamento dello stato.
+Estende il Sheet 5 con tracciamento dello stato — è il **diario vivo** della Fase 2 manuale
+(invio domande al cliente, raccolta risposte). A fine Fase 1 (output di questa skill) tutte
+le righe sono in stato `Non inviato`; durante la Fase 2 il bid manager aggiorna ogni riga
+mano a mano che le risposte arrivano dal cliente. La sua evoluzione è ciò che sblocca la
+Fase 3 (cost-estimator): quando tutti i `Bloccante per stima = SI` passano a `NO` (o
+diventano assunzioni operative documentate), il workbook è pronto per il cost modeling.
+
 Colonne: `#` (stesso del Sheet 5), `Capability`, `Categoria`, `Testo Domanda`,
 `Driver che abilita`, `Prio` (drop-down 1/2/3), `Stato` (drop-down Non inviato / Inviato /
 Risposta ricevuta), `Data Risposta`, `Sintesi Risposta`, `Impatto se non risolto` (drop-down
 ALTO/MEDIO/BASSO), `Bloccante per stima` (drop-down SI/NO).
 **Ordina per `Bloccante per stima` decrescente**, poi per `Impatto se non risolto` decrescente.
+
+**Differenza operativa Sheet 5 vs Sheet 9 (riassunto rapido):**
+
+| | Sheet 5 — Domande Chiarimento | Sheet 9 — Registro Chiarimenti |
+|---|---|---|
+| Scopo | Catalogo **statico** da inviare al cliente / allegare all'offerta | Diario **vivo** dello stato per-domanda |
+| Quando si tocca | Solo a fine Fase 1 (questa skill) | A ogni risposta cliente, durante Fase 2 |
+| Colonne | 6 (statiche) | 11 (5 statiche + 6 di stato/risposta) |
+| Ordinamento | Per `Prio` ascendente | Per `Bloccante` desc, poi `Impatto` desc |
+| Cambia nel tempo? | No, baseline immutabile | Sì, evolve fino a Fase 3 |
+| Granularità | 1 riga = 1 domanda | idem (allineato col `#` di Sheet 5) |
+
+**Merge simmetrico delle `domande_bloccanti` del JSON**: ogni `domanda_bloccante`
+presente nel Sheet 5 con tag `[Q-NNN]` deve essere replicata qui con stesso `#`,
+`Bloccante per stima = SI`, `Impatto se non risolto = ALTO`, `Stato = Non inviato`,
+`Data Risposta` e `Sintesi Risposta` vuoti. Il `#` resta identico al Sheet 5 (regola
+generale di coerenza ID già documentata in "Regole operative").
+
+**Stile semaforico colonna `Prio`**: applica lo **stesso identico schema** dello Sheet 5
+(vedi sezione `5. Domande Chiarimento` → "Stile semaforico colonna Prio"). I valori `1/2/3`
+significano la stessa cosa e devono essere visivamente identici sui due fogli — il lettore
+non deve dover ricordare due codici cromatici diversi per la stessa scala di priorità.
 
 ### `10. Nota di Handoff` — sintesi narrativa
 Tre sezioni con titoli fissi:
@@ -431,6 +771,146 @@ Tre sezioni con titoli fissi:
   se la baseline applicativa è critica per la stima → `BLOCCANTE — Data baseline parco
   applicativo` (anche Sheet 8 ROSSO). Solo se il refuso è palesemente innocuo (es. un
   numero di pagina sbagliato) → `ERRORE CORRETTO`.
+
+**Stile esplicito su ogni riga popolata (regola di rendering, coerente Sheet 8).**
+Identico problema strutturale dello Sheet 8: il template ha pre-styling fragile su
+righe la cui numerosità dipende dalla RFP (sezione 1 da ~10 a ~25 voci, sezione 2 da
+~5 a ~20 voci, sezione 3 da ~3 a ~10 voci). Affidarsi al pre-styling significa avere
+l'ultima riga di ogni sezione senza fill, o righe con colore errato perché cadono in
+una zona stilizzata per un'altra sezione.
+
+Pertanto applicare esplicitamente lo stile per sezione/sotto-categoria su tutte e sole
+le righe popolate. Schema cromatico (allineato a Sheet 8 per coerenza visiva
+Sheet 10 ↔ Sheet 8):
+
+| Sezione / Prefisso | Fill riga | Font riga | Fill banner |
+|---|---|---|---|
+| Sezione 1 — `COSA È CONFERMATO` | `#DCFCE7` verde | `#065F46` | `#15803D` |
+| Sezione 2 — `BLOCCANTE — ...` | `#FEE2E2` rosso | `#991B1B` | (banner sezione `#D97706`) |
+| Sezione 2 — `DA ASSUMERE — ...` | `#FEF3C7` giallo | `#92400E` | (idem) |
+| Sezione 2 — `ERRORE CORRETTO — ...` | `#F3F4F6` grigio | `#374151` | (idem) |
+| Sezione 3 — `DECISION POINT CRITICI` | `#DBEAFE` azzurro | `#1E40AF` | `#1E40AF` |
+
+Per la sezione 2 lo stile della riga deriva dal **prefisso** della colonna A: classificare
+`BLOCCANTE` → rosso, `DA ASSUMERE` → giallo, `ERRORE CORRETTO` → grigio. Banner di sezione
+ambra (`#D97706`) come "warning generale" copre l'intera sezione 2 mista.
+
+Banner di sezione: merge `A:F`, font bianco bold 12pt. Colonna A delle righe contenuto in
+bold (è la label), colonna B in regular.
+
+Snippet:
+```python
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+CONFIRMED = ('DCFCE7', '065F46')
+DEC_POINT = ('DBEAFE', '1E40AF')
+SUBCATS = {
+    'BLOCCANTE':       ('FEE2E2', '991B1B'),
+    'DA ASSUMERE':     ('FEF3C7', '92400E'),
+    'ERRORE CORRETTO': ('F3F4F6', '374151'),
+}
+BANNER_FILLS = {1: '15803D', 2: 'D97706', 3: '1E40AF'}
+LEFT = Alignment(horizontal='left', vertical='center', wrap_text=True, indent=1)
+THIN = Side(border_style='thin', color='E5E7EB')
+ROW_BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
+
+# Banner sezione (per ognuno dei 3 header)
+for section_idx, banner_r in banner_rows.items():
+    ws.merge_cells(f'A{banner_r}:F{banner_r}')
+    cell = ws.cell(row=banner_r, column=1)
+    cell.fill = PatternFill('solid', fgColor=BANNER_FILLS[section_idx])
+    cell.font = Font(name='Calibri', size=12, bold=True, color='FFFFFF')
+    cell.alignment = Alignment(horizontal='left', vertical='center', indent=1)
+
+# Righe contenuto - dispatch per sezione e (sezione 2) per prefisso
+def style_row(r, fill_hex, font_hex):
+    fill = PatternFill('solid', fgColor=fill_hex)
+    for c in range(1, 7):
+        cell = ws.cell(row=r, column=c)
+        cell.fill = fill
+        cell.font = Font(name='Calibri', size=10, color=font_hex, bold=(c == 1))
+        cell.alignment = LEFT
+        cell.border = ROW_BORDER
+
+for section_idx, rows in section_content.items():
+    for r in rows:
+        if section_idx == 1:
+            style_row(r, *CONFIRMED)
+        elif section_idx == 3:
+            style_row(r, *DEC_POINT)
+        elif section_idx == 2:
+            label = str(ws.cell(row=r, column=1).value or '').upper()
+            chosen = next((s for p, s in SUBCATS.items() if label.startswith(p)),
+                          SUBCATS['DA ASSUMERE'])  # fallback giallo
+            style_row(r, *chosen)
+```
+
+**Bug storico evitato (15/05/2026 RAI Sistemi Informativi):** lo Sheet 10 generato aveva
+- Sezione 1 con r4 grigio chiaro (font illeggibile `#64748B`), r14 verde corretto, r23 in
+  ROSSO (completamente errato — è una voce CONFERMATA);
+- Sezione 2 quasi tutta senza stile, con una sola riga a metà colorata gialla per caso;
+- Sezione 3 interamente senza stile.
+
+Causa: il template aveva pre-styling random `verde/giallo/rosso/bianco` sulle righe
+r4-r49 non correlato con le 3 sezioni semantiche. Il template è ora stato patchato per
+rimuovere il pre-styling (le righe contenuto sono "neutre"), quindi ogni generazione DEVE
+applicare lo stile esplicitamente come da snippet. Effetto: la corrispondenza Sheet 10 ↔
+Sheet 8 (regola già documentata) diventa anche **visiva**: una voce BLOCCANTE è rossa in
+Sheet 10 come in Sheet 8 ROSSO, una voce DA ASSUMERE è gialla in Sheet 10 come in Sheet 8
+GIALLO, una voce CONFERMATO è verde come Sheet 8 VERDE.
+
+### Fase 2 manuale — uso combinato Sheet 9 + Sheet 10 (Sheet 8 NO)
+
+La Fase 2 (a carico del bid manager, fuori dallo scope di esecuzione di questa skill) è il
+ponte tra l'output di `gara-rfp-handoff` e l'input di `gara-effort-cost-estimator`. Il bid
+manager opera **esclusivamente su due sheet** con granularità diverse:
+
+| Sheet | Granularità | Cosa rappresenta | Aggiornato da |
+|---|---|---|---|
+| Sheet 9 (Registro Chiarimenti) | 1 riga = 1 domanda | Diario per-domanda con timeline | **Bid manager**, ad ogni risposta cliente |
+| Sheet 10 sezione 2 (COSA È APERTO) | 1 riga = 1 tema operativo | Sintesi aggregata di cosa manca per stimare | **Bid manager**, riclassificando voci |
+| Sheet 8 (Input Cost Model) | 1 riga = 1 parametro | Stato dei parametri V/G/R | **NON il bid manager** — è competenza del **cost modeler in Fase 3** |
+
+**Separazione di responsabilità — perché il bid manager NON tocca lo Sheet 8.** Il bid
+manager è una figura commerciale/contrattuale, non tecnica: il suo ruolo è raccogliere
+e documentare le risposte del cliente (Sheet 9) e mantenere allineata la sintesi narrativa
+(Sheet 10). L'interpretazione tecnica della risposta — "il cliente ha detto X, quindi il
+parametro `Volume MAC` vale Y con split Z" — è una decisione di **cost modeling** che
+spetta a chi gira `gara-effort-cost-estimator` in Fase 3. Quella skill ha proprio come
+pre-step la rilettura combinata di Sheet 9 + Sheet 8 nel loro stato attuale e l'aggiornamento
+in-place del Sheet 10, traducendo i testi delle risposte cliente in valori numerici per il
+cost model. Il bid manager fornisce il **materiale grezzo** (testi); il cost modeler fa
+**l'interpretazione tecnica** (numeri e split di volumi).
+
+Una voce dello Sheet 10 sezione 2 spesso **aggrega** più righe di Sheet 9. Esempio:
+- Voce Sheet 10 `DA ASSUMERE — Volumi storici operativi` → copre 4 righe Sheet 9 (Q-008 MAC, Q-009 REP, Q-010 GES, Q-011 GST).
+- Voce Sheet 10 `BLOCCANTE — Volumi T&M` → corrisponde a una riga Sheet 9 (Q-001).
+
+**Workflow tipico per ogni risposta cliente ricevuta (bid manager):**
+
+1. **Sheet 9 — registra la risposta puntuale**:
+   - aggiorna riga `Q-NNN`: `Stato` → `Risposta ricevuta`, popola `Data Risposta`, scrivi `Sintesi Risposta` (1-2 frasi che catturano il testo della risposta)
+   - se la risposta scioglie il blocco, abbassa `Bloccante per stima` da `SI` a `NO`
+2. **Sheet 10 — aggiorna la sintesi narrativa**:
+   - se tutte le righe Sheet 9 coperte da una voce Sheet 10 sez. 2 hanno avuto risposta, **sposta la voce in sez. 1 `COSA È CONFERMATO`** (o aggiornala con la sintesi della risposta)
+   - se solo alcune sono state risposte, riformula la voce sez. 2 per restringere lo scope ancora aperto
+   - non toccare la sez. 3 `DECISION POINT CRITICI`: sono decisioni interne, non dipendono dal cliente
+   - **non valorizzare parametri Sheet 8** — lascia GIALLI e ROSSI come sono: sarà il cost modeler a tradurli in Fase 3
+
+**Perché il cost modeler usa Sheet 10 e non legge direttamente Sheet 9.** In Fase 3
+`gara-effort-cost-estimator` apre il workbook con un obiettivo: capire **se può stimare e
+con quali assunzioni**. La granularità per-domanda di Sheet 9 è troppo fine per quella
+decisione (28 righe da scorrere e classificare); la sintesi aggregata di Sheet 10 sez. 2
+risponde direttamente: "Quanti BLOCCANTI restano aperti? Quante voci DA ASSUMERE devo
+modellare con benchmark?". Lo Sheet 8 viene poi valorizzato dal cost modeler stesso
+leggendo Sheet 9 (testi puntuali) e Sheet 10 (sintesi) — quindi all'inizio della Fase 3
+lo Sheet 8 può ancora avere GIALLI/ROSSI: è normale, non è un errore.
+
+**Trigger di chiusura Fase 2 (criterio di ripresa workflow):**
+La Fase 2 si considera completa quando nello Sheet 9 non c'è più nessuna riga con
+`Bloccante per stima = SI` E nello Sheet 10 sezione 2 non c'è più nessuna voce con
+prefisso `BLOCCANTE — `. **NON è richiesto che Sheet 8 sia tutto VERDE**: la
+valorizzazione dei GIALLI è competenza del cost modeler. A trigger soddisfatto si invoca
+`gara-effort-cost-estimator` con il workbook aggiornato.
 
 ### `_Esempi` — riferimento di compilazione
 Ultimo sheet del workbook. Contiene esempi reali estratti dalla gara RAI, organizzati per sheet
@@ -459,6 +939,7 @@ operativo, con il commento del caso esemplificato. Leggilo PRIMA di compilare og
 | Sheet 8 ROSSO | ≥3 voci | **5-8 voci** | Una RFP senza alcun bloccante è altamente sospetta |
 | Sheet 9 — Registro Chiarimenti | = Sheet 5 (1:1) | (idem) | Stesso numero, ordinato per Bloccante DESC |
 | Sheet 10 — Nota Handoff | ≥10 confermati, ≥6 aperti, ≥3 decision point | **15-20 / 8-12 / 4-6** | Sezioni proporzionate al rischio della RFP |
+| Sheet `Requisiti` | = `len(requisiti)` del JSON (esatto, no soglia) | (idem) | Granularità imposta da `gara-req-extractor`, non da questa skill. Per RFP enterprise tipicamente 40-80 requisiti |
 
 **Per RFP < €5M:** ridurre proporzionalmente le soglie (×0,6 indicativo), mantenendo
 sempre la copertura completa di tutte le capability L2 (no scope coverage debt).
@@ -537,6 +1018,23 @@ infrastruttura MLOps), profili dedicati ammessi vs coperti dai 4 profili tariffa
 Leggi tutti i documenti commerciali e tecnici. Se è presente `rfp_analysis.json`, leggilo come
 contesto aggiuntivo (non sostituisce la lettura dei documenti).
 
+### Step 1bis — Lettura `requisiti_estratti.json` (PREREQUISITO OBBLIGATORIO)
+
+Cerca `requisiti_estratti.json` nella working directory dell'utente.
+
+- **Se assente**: presenta in chat un messaggio chiaro e **termina senza popolare il template**:
+  > ❌ **Manca `requisiti_estratti.json`** nella working directory.
+  > Questa skill richiede l'output di `gara-req-extractor` come input obbligatorio.
+  > Esegui prima `gara-req-extractor` sui documenti di gara, poi rilancia `gara-rfp-handoff`.
+
+- **Se presente**:
+  1. Valida che `meta.versione_schema == "2.0"`. Se diverso, emetti warning e chiedi
+     all'utente se procedere comunque (potrebbero mancare campi del nuovo schema).
+  2. Valida che `requisiti` non sia vuoto. Se vuoto, emetti warning: il JSON è stato prodotto
+     ma non ha estratto requisiti — chiedi conferma all'utente prima di procedere.
+  3. Annota mentalmente: numero requisiti, ripartizione per `area_funzionale`, ripartizione
+     `tipo` (padre/figlio/singolo), ripartizione `categoria_scope`, lista `domande_bloccanti`.
+
 ### Step 2 — Lettura preventiva del template
 Apri `assets/template_rfp_handoff.xlsx` e leggi:
 - L'ordine e il nome esatto degli sheet.
@@ -559,18 +1057,80 @@ Se l'utente chiede modifiche, applicale e ripresenta il registro aggiornato. Rip
 finché non c'è approvazione completa.
 
 ### Step 7 — Copia del template e popolamento
+
+#### Step 7.0 — Hardening obbligatori (anti-data-loss e anti-mismatch)
+
+Prima di scrivere qualsiasi cella, internalizzare le 4 regole che eliminano le classi
+di bug osservate in passato:
+
+1. **Helper `safe_set` / `safe_clear` dalla prima riga, mai accesso diretto a `.value`**.
+   Il template contiene merged cells (sheet 1, 7, 8, 10 hanno banner/sezioni con merge);
+   un `cell.value = ...` su una `MergedCell` lancia `AttributeError` e interrompe lo
+   script lasciando i sheet successivi vuoti. Pattern:
+   ```python
+   from openpyxl.cell.cell import MergedCell
+   def safe_set(ws, r, c, value):
+       cell = ws.cell(row=r, column=c)
+       if not isinstance(cell, MergedCell):
+           cell.value = value
+   def safe_clear(ws, from_row, to_row, max_col):
+       for r in range(from_row, to_row+1):
+           for c in range(1, max_col+1):
+               safe_set(ws, r, c, None)
+   ```
+   Usali sempre, non solo come fix reattivo dopo un crash.
+
+2. **Save per sheet, mai save monolitico in fondo**. Dopo aver popolato ogni sheet,
+   chiamare `wb.save(WB_PATH)` immediatamente. Costa pochi millisecondi e impedisce che
+   un crash sul sheet N azzeri i sheet 1..N-1 popolati in memoria. Pattern: per ognuno
+   dei 12 sheet, blocco `populate → save → log "Sheet X salvato"`.
+
+3. **Label dal template come ground truth, mai "a memoria"**. Per gli sheet a layout
+   label-valore (Sheet 1 anagrafica, Sheet 10 nota di handoff), NON costruire mai un
+   dizionario `{"Importo a base di gara": ...}` basato su quello che ricordi del
+   template. Sempre leggere prima la colonna A del template, raccogliere le label
+   esatte presenti, e usarle come chiavi:
+   ```python
+   label_to_row = {}
+   for row in ws.iter_rows(min_row=1, max_row=ws.max_row, values_only=False):
+       a = row[0].value
+       if a and isinstance(a, str):
+           label_to_row[a.strip()] = row[0].row
+   # Solo ora costruisci la mappa SHEET1_FILL su queste chiavi reali
+   ```
+   La regola "Lettura preventiva di `_Esempi`" si estende quindi anche alla **lettura
+   della colonna A di ogni sheet a layout label-valore**.
+
+4. **Self-check post-save riaprendo il file**, non solo in-memory. Vedi
+   "Validazione pre-output" — il check 0 (nuovo) richiede di chiudere e riaprire il
+   workbook e contare le righe popolate per sheet. In-memory un sheet che non è mai
+   stato salvato sembra pieno.
+
+#### Step 7.1 — Esecuzione
+
 1. Copia `assets/template_rfp_handoff.xlsx` in `rfp_handoff.xlsx` nella working directory dell'utente.
 2. Apri il file copiato (delegando alla skill `xlsx` per le operazioni di scrittura).
 3. Per ogni sheet, popola le celle rispettando:
    - intestazioni di colonna esistenti (non rinominarle)
    - drop-down/data validation (usa solo valori ammessi)
    - layout a sezioni (sheet 1, 7, 8, 10): non spostare i titoli di sezione
-4. Sheet 7: prima di scrivere i profili, sostituisci le intestazioni E:N con le capability L2
+4. **Sheet `Requisiti`**: trascrivi `requisiti_estratti.json` riga per riga rispettando le 16
+   colonne (mapping nella sezione "### Requisiti"). Mantieni `testo_bando` verbatim, non
+   riformattare. Per `scope_dettaglio` (oggetto): serializza in stringa col separatore ` | `;
+   se l'oggetto è null, lascia la cella vuota. Mantieni l'ordine del JSON.
+5. **Merge delle `domande_bloccanti` del JSON in Sheet 5 e Sheet 9**: per ogni elemento
+   dell'array `domande_bloccanti`, aggiungi una riga al Sheet 5 con `Categoria = Scope/Requisito`,
+   `Prio = 1`, `Testo Domanda` prefissato `[Q-NNN]` (vedi regole Sheet 5/9). Replica la stessa
+   riga in Sheet 9 con stesso `#`, `Bloccante per stima = SI`, `Stato = Non inviato`,
+   `Impatto se non risolto = ALTO`.
+6. Sheet 7: prima di scrivere i profili, sostituisci le intestazioni E:N con le capability L2
    reali della RFP.
-5. Sheet 8: copia in sezione ROSSO tutte le incoerenze tra documenti registrate nel sheet 4.
-6. Sheet 9: ordina per `Bloccante per stima` decrescente.
-7. Sheet 10: scrivi label brevi in colonna A (es. "Valore appalto", "BLOCCANTE — Volumi T&M",
+7. Sheet 8: copia in sezione ROSSO tutte le incoerenze tra documenti registrate nel sheet 4.
+8. Sheet 9: ordina per `Bloccante per stima` decrescente.
+9. Sheet 10: scrivi label brevi in colonna A (es. "Valore appalto", "BLOCCANTE — Volumi T&M",
    "DP-01 (CRITICO)") e contenuto disteso in colonna B.
+10. **Save dopo ogni sheet** (vedi Step 7.0 punto 2). NON accumulare 12 popolamenti e poi
+    fare un solo `wb.save()` finale: ogni sheet completato deve essere persistito subito.
 
 ### Step 8 — Riepilogo finale
 Presenta all'utente un riepilogo Markdown:
@@ -578,6 +1138,10 @@ Presenta all'utente un riepilogo Markdown:
 > **Pacchetto di handoff RFP — [Nome progetto]**
 >
 > **Cliente:** [...] | **Modello:** [...] | **Durata:** [...] | **Industry:** [...]
+>
+> **Requisiti caricati:** N (padre: A, figlio: B, singoli: C) | **Aree funzionali:** elenco
+> | **Distribuzione scope:** custom N / cots N / service N / out_of_scope N
+> | **Domande scope bloccanti mergiate in Sheet 5/9:** N
 >
 > **Capability mappate:** N (L1: A, L2: B, L3: C)
 >
@@ -635,6 +1199,33 @@ nel sheet `4. Gap Analysis` e replicate nel sheet `8. Input Cost Model` come BLO
   vuota = "Non esplicitato nel documento".
 - **Sheet 7 intestazioni dinamiche**: prima di popolare, sostituisci le intestazioni di colonna
   E:N con le capability L2 effettive della RFP.
+- **Sheet 7 unmerge fantasma all'inizio**: subito dopo aver aperto lo Sheet 7, sciogli i
+  merge `A23:N23` e `A29:N29` ereditati dal template (vedi sezione `7. Matrice Profili x
+  Capability` → "Merge fantasma del template"). Senza questo step il profilo TL/Analista
+  Funzionale T&M va perso silenziosamente.
+- **Sheet 7 stile semaforico obbligatorio**: applicare i 4 colori (verde/giallo/azzurro/viola)
+  a tutte le celle E:N popolate, sovrascrivendo il fill placeholder grigio chiaro del
+  template. La tabella esatta dei colori hex è nella sezione `7. Matrice Profili x
+  Capability` → "Stile semaforico obbligatorio".
+- **Sheet 8 stile esplicito per gruppo**: dopo aver scritto i contenuti dei 3 gruppi
+  (V/G/R), applicare esplicitamente il fill e font color per gruppo su **ogni riga
+  popolata**, dalla prima all'ultima. Niente affidamento al pre-styling del template.
+  La tabella esatta dei 3 colori (verde/giallo/rosso) + snippet Python sono nella
+  sezione `8. Input Cost Model` → "Stile esplicito su ogni riga popolata".
+- **Sheet 10 stile esplicito per sezione + sotto-categoria**: stessa logica di Sheet 8,
+  con dispatch sulla sezione 2 in base al prefisso della col A (`BLOCCANTE` rosso,
+  `DA ASSUMERE` giallo, `ERRORE CORRETTO` grigio). I colori sono identici a Sheet 8 per
+  rafforzare la coerenza Sheet 10 ↔ Sheet 8 anche visivamente. Snippet completo nella
+  sezione `10. Nota di Handoff` → "Stile esplicito su ogni riga popolata".
+- **Sheet 5 + Sheet 9 stile semaforico colonna `Prio`**: applicare alla cella F di ogni
+  domanda i tre colori coerenti con la scala di criticità (1 rosso, 2 arancione, 3
+  verde). Schema identico sui due sheet. Vedi sezione `5. Domande Chiarimento` →
+  "Stile semaforico colonna Prio" per la tabella hex e lo snippet.
+- **Sheet `Requisiti` stile padre come contenitore**: ogni riga con `tipo = padre` riceve
+  fill lavanda `#E0E7FF` + font bold viola scuro `#3730A3` sulle colonne label, in modo
+  che sia visivamente distinguibile come "header del gruppo" rispetto ai propri figli.
+  Le righe `figlio` e `singolo` restano neutre (nessun fill, font regular nero). Vedi
+  sezione `Requisiti` → "Stile differenziato per tipo" per snippet e razionale cromatico.
 - **Drop-down rispettati**: i valori ammessi nei campi a lista chiusa sono i seguenti:
   - Livello (Sheet 2 col A): `L1`, `L2`, `L3`
   - Tipo Contratto (Sheet 2 col D): `Canone`, `T&M`, `Start-up`, `Misto`
@@ -651,6 +1242,15 @@ nel sheet `4. Gap Analysis` e replicate nel sheet `8. Input Cost Model` come BLO
   - Bloccante per stima (Sheet 9 col K): `SI`, `NO`
 - **Coerenza ID**: il `#` del Sheet 5 è lo stesso del Sheet 9 (la stessa domanda).
 - **Lettura preventiva di `_Esempi` obbligatoria** prima di popolare ogni sheet.
+- **Lettura preventiva delle label di col A** per gli sheet a layout label-valore
+  (Sheet 1, Sheet 10): costruire la mappa `label_esatta → row` leggendo il template,
+  mai usare un dizionario di label "a memoria" (vedi Step 7.0 punto 3).
+- **`safe_set` / `safe_clear` sempre** quando si scrive nel workbook: il template contiene
+  merged cells nei banner di sezione (Sheet 1, 7, 8, 10) e un accesso diretto a `.value`
+  su `MergedCell` interrompe lo script (vedi Step 7.0 punto 1).
+- **Save per sheet, non monolitico**: `wb.save()` dopo ogni sheet popolato, in modo che
+  un crash sul sheet N non azzeri i sheet 1..N-1 (vedi Step 7.0 punto 2 + check 0 della
+  validazione pre-output).
 - **Output sempre in italiano**, salvo richiesta esplicita diversa.
 - **Profili professionali ammessi nello Sheet 7**: solo quelli esplicitamente definiti
   nei documenti di gara. NIENTE profili inventati (DBA, DevOps, QA, ML Engineer, ecc.)
@@ -660,6 +1260,13 @@ nel sheet `4. Gap Analysis` e replicate nel sheet `8. Input Cost Model` come BLO
   del Sheet 8 sez. GIALLO della stessa categoria.
 - **Assunzioni di volume quantificate**: numero provvisorio basato su benchmark, non
   rinvio al cost modeler (vedi regola Sheet 6).
+- **Sheet `Requisiti` read-only dalla sorgente JSON**: lo sheet riflette 1:1
+  `requisiti_estratti.json`. NON aggiungere righe non presenti nel JSON; NON omettere righe
+  del JSON. Se serve un nuovo requisito, tornare a `gara-req-extractor` e ri-popolare.
+  Modifiche manuali introducono drift con `gara-bid-estimator` che legge dallo stesso JSON.
+- **Tracciabilità domande di scope**: ogni domanda derivata da `domande_bloccanti` del JSON
+  presente nel Sheet 5/9 deve mantenere il prefisso `[Q-NNN]` nel testo per consentire il
+  raccordo con l'`id` della sorgente JSON.
 
 ## Validazione pre-output (self-check obbligatorio prima del Step 8)
 
@@ -667,6 +1274,23 @@ Prima di presentare il riepilogo finale all'utente, la skill DEVE eseguire un se
 sui contenuti scritti nel file e segnalare eventuali violazioni delle regole sopra.
 
 Checklist di validazione (esegui in ordine, ferma all'errore):
+
+0. **Persistenza reale — riapri il file e conta** (PRIMO CHECK, non saltabile). Dopo
+   l'ultimo save, chiudi il workbook in memoria e riaprilo da disco con
+   `openpyxl.load_workbook(WB_PATH)`. Per ognuno dei 12 sheet, conta le celle non vuote
+   da `min_row=4` in poi:
+   ```python
+   for sn in wb.sheetnames:
+       ws = wb[sn]
+       filled = sum(1 for row in ws.iter_rows(min_row=4) for c in row
+                    if c.value is not None and str(c.value).strip())
+       print(f"{sn}: {filled} celle")
+   ```
+   Se un sheet operativo (1-10 + Requisiti) ha 0 celle popolate, è andato perso in un
+   crash: ri-popolare quello sheet e ri-salvare. Se uno sheet è sotto il floor della
+   sezione "Granularità minima per sheet", investigare prima di passare al check 1.
+   In-memory un sheet che non è mai stato salvato sembra popolato — solo la rilettura
+   da disco è autoritativa.
 
 1. **Tutte le categorie della "Checklist di estrazione OBBLIGATORIA" sono coperte?**
    In particolare, **revisione prezzi** è presente come voce VERDE Sheet 8 se citata nei
@@ -706,6 +1330,56 @@ Checklist di validazione (esegui in ordine, ferma all'errore):
 10. **Tracciabilità Sheet 7 celle E:N**: i valori sono `P-DOC` / `P-IPO` / `S-DOC` / `S-IPO`
     (non più `P` / `S` puro)? Ogni `*-IPO` ha rationale in col D `Fonte`? Ogni `*-DOC` ha
     citazione documentale puntuale in col D?
+
+10b. **Stile semaforico Sheet 7 applicato**: tutte le celle E:N delle righe profilo
+    (Canone 6-19 + T&M 22-25) hanno il fill e font color secondo la tabella semaforica
+    (P-DOC verde / P-IPO giallo / S-DOC azzurro / S-IPO viola)? Nessuna cella ha più il
+    fill placeholder `#F8FAFC` con font `#CBD5E1` (verifica via `cell.fill.fgColor.rgb`)?
+    La legenda riga 4 è stata riscritta con lo schema cromatico?
+
+10c. **Merge fantasma Sheet 7 sciolti**: i range `A23:N23` e `A29:N29` NON sono più in
+    `ws.merged_cells.ranges`? Le righe 22-25 contengono i 4 profili T&M completi
+    (Architetto, TL/Analista Funzionale, Analista Programmatore, Programmatore) con
+    colonna B valorizzata? Il banner T&M a riga 21 ha merge `A21:N21` con stile coerente?
+
+10d. **Stile gruppo coerente Sheet 8**: per ognuno dei 3 gruppi (V/G/R), prima riga e
+    **ultima riga del gruppo** hanno lo stesso `fill.fgColor.rgb` e `font.color.rgb`
+    (verde `DCFCE7`/`065F46`, giallo `FEF3C7`/`92400E`, rosso `FEE2E2`/`991B1B`)? Nessuna
+    riga popolata ha fill `None` o font default? I 3 banner di sezione hanno merge `A:F`
+    + fill banner scuro + font bianco bold? Controllo a campione consigliato:
+    `assert ws.cell(row=last_row_V, column=1).fill.fgColor.rgb.endswith('DCFCE7')`.
+
+10e. **Stile per sezione/sotto-categoria Sheet 10**: per ognuna delle 3 sezioni, prima e
+    ultima riga hanno il fill corretto secondo lo schema (sezione 1 verde `DCFCE7`,
+    sezione 3 azzurro `DBEAFE`)? Per la sezione 2 mista, ogni voce è classificata per
+    prefisso e ha il fill corretto (BLOCCANTE rosso `FEE2E2`, DA ASSUMERE giallo `FEF3C7`,
+    ERRORE CORRETTO grigio `F3F4F6`)? Nessuna voce della sezione 2 è priva di prefisso
+    riconosciuto (in tal caso va corretta a monte, non lasciata con fill di default)?
+    I 3 banner di sezione hanno merge `A:F` + fill scuro + font bianco bold 12pt?
+
+10f. **Stile semaforico Prio Sheet 5 + Sheet 9**: la colonna F di entrambi gli sheet ha
+    per ogni cella valorizzata il fill e font color secondo lo schema (1 rosso
+    `FEE2E2`/`991B1B`, 2 arancione `FED7AA`/`9A3412`, 3 verde `DCFCE7`/`15803D`)? Lo
+    schema deve essere **identico** sui due sheet (non basta lo stesso colore per Prio 1
+    su entrambi: anche 2 e 3 devono coincidere)? Nessuna cella Prio è priva di fill o
+    con font default?
+
+11. **Coerenza Sheet `Requisiti` ↔ JSON sorgente**: il numero di righe popolate in
+    `Requisiti` è esattamente uguale a `len(requisiti_estratti.json["requisiti"])`? Tutti
+    gli `id` del JSON sono presenti in colonna A? Per ogni riga con `tipo = figlio`, il
+    `padre_id` (col C) esiste come `id` (col A) in un'altra riga? Per ogni riga con
+    `categoria_scope ≠ custom_software`, la col L `Scope Dettaglio` è popolata?
+
+11b. **Stile differenziato `tipo` su Sheet `Requisiti`**: ogni riga con `tipo = padre` ha
+    fill `#E0E7FF` lavanda + font bold viola `#3730A3` sulle colonne label (A, B, D, E,
+    M)? Le righe `figlio` e `singolo` hanno fill `None` e font nero regular? Controllo a
+    campione: `assert ws.cell(row=parent_row, column=1).fill.fgColor.rgb.endswith('E0E7FF')
+    and ws.cell(row=parent_row, column=1).font.bold is True`.
+
+12. **Coerenza Sheet 5/9 ↔ `domande_bloccanti` del JSON**: ogni elemento dell'array
+    `domande_bloccanti` ha una riga corrispondente nel Sheet 5 con prefisso `[Q-NNN]` nel
+    `Testo Domanda`, `Categoria = Scope/Requisito`, `Prio = 1`, e una riga simmetrica nel
+    Sheet 9 con stesso `#`, `Bloccante per stima = SI`, `Stato = Non inviato`?
 
 Se uno qualsiasi di questi check fallisce: **correggi il file prima di presentare il
 riepilogo all'utente**. Non chiedere conferma per le correzioni di self-check.

@@ -8,6 +8,9 @@ description: >
   OUTPUT: file `rfp_analysis.json` con analisi economica, criteri di aggiudicazione, formato risposta,
   summary scope/stack/architettura, open point QA per il cliente, verifica EOL/LTS stack as-is.
   SEQUENZA: questa skill va eseguita PRIMA di gara-req-extractor e gara-bid-estimator.
+  POSIZIONAMENTO: per il workflow completo end-to-end usare `gara-workflow` come punto di ingresso unico
+  (l'orchestratore richiama questa skill come Step 2 della Fase 1). Questa skill resta invocabile
+  standalone se serve solo l'analisi strategica.
   NON USARE se l'utente vuole il pacchetto operativo per il team che dovrà stimare — cioè un
   PowerPoint di Executive Summary + un Excel multi-sheet con capability, driver di stima,
   matrice profili x capability, gap analysis, registro chiarimenti e nota di handoff verso il
@@ -20,6 +23,17 @@ description: >
 ---
 
 # Gara RFP Analyzer
+
+## Posizionamento nel workflow `gara-*`
+
+Questa è la **Step 2 della Fase 1** del workflow gara end-to-end orchestrato da
+`gara-workflow`. Sequenza completa: `gara-workflow` → **`gara-rfp-analyzer` (qui)** →
+`gara-req-extractor` → `gara-rfp-handoff` → `gara-rfp-deck` → [Fase 2 manuale] →
+`gara-effort-cost-estimator` (sempre) + `gara-bid-estimator` (condizionale).
+
+La skill resta richiamabile **standalone** se serve solo l'analisi strategica del bando.
+
+---
 
 Analizza strategicamente un documento di gara prima dell'estrazione dei requisiti. Produce un'analisi
 completa che orienta la costruzione dell'offerta: valore economico, criteri di aggiudicazione,
